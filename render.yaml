@@ -1,0 +1,15 @@
+services:
+  - type: web
+    name: Distrubute-AI-Holderi
+    runtime: python
+    buildCommand: "pip install -r requirements.txt"
+    startCommand: "python3 main.py"
+    envVars:
+      - key: BOT_TOKEN
+        fromEnvVar: BOT_TOKEN
+      - key: CHAT_ID
+        fromEnvVar: CHAT_ID
+      - key: MONITORED_MINT
+        fromEnvVar: MONITORED_MINT
+      - key: HELIUS_API_KEY
+        fromEnvVar: HELIUS_API_KEY
