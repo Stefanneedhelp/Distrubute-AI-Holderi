@@ -43,12 +43,37 @@ def fetch_holder_transactions(holder, mint, helius_api_key, start_time, end_time
                 filtered.append({
                     "owner": holder,
                     "usd_value": float(tx.get("tokenValue", 0)) * get_token_price(),
-                    "type": "BUY" if tx.get("tokenStandard") == "fungible" else "SELL"  # primer logike
+                    "type": "BUY" if tx.get("tokenStandard") == "fungible" else "SELL",
+                    "interaction_with": tx.get("tokenAccount", "N/A"),
+                    "timestamp": tx.get("timestamp", 0)
                 })
         return filtered
     except Exception as e:
         print(f"[Fetch Error] {e}")
         return []
+
+def fetch_global_volume(mint, helius_api_key, start_time, end_time):
+    url = f"https://api.helius.xyz/v0/token-mints/{mint}/transactions?api-key={helius_api_key}"
+    try:
+        response = requests.get(url)
+        txs = response.json()
+        total_buy = 0
+        total_sell = 0
+
+        for tx in txs:
+            ts = tx.get("timestamp")
+            if ts and start_time <= ts <= end_time:
+                amount = float(tx.get("tokenValue", 0)) * get_token_price()
+                if tx.get("type") == "BUY":
+                    total_buy += amount
+                elif tx.get("type") == "SELL":
+                    total_sell += amount
+
+        return total_buy, total_sell
+
+    except Exception as e:
+        print(f"[Global Volume Error] {e}")
+        return 0, 0
 
 def send_daily_report():
     now = datetime.utcnow()
@@ -84,3 +109,4 @@ Odnos kupovina/prodaja: {ratio}
 """
 
     send_telegram_message(report)
+
