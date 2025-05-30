@@ -1,58 +1,32 @@
-from datetime import datetime, timedelta
+import requests
+from datetime import datetime
 import os
-from apscheduler.schedulers.blocking import BlockingScheduler
 
-# Učitavanje okruženja
-BOT_TOKEN = os.getenv("BOT_TOKEN")
-CHAT_ID = os.getenv("CHAT_ID")
-MONITORED_MINT = os.getenv("MONITORED_MINT")
-HELIUS_API_KEY = os.getenv("HELIUS_API_KEY")
+def fetch_holder_transactions(holder, mint, helius_api_key, start_time, end_time):
+    return []
 
-# Lista adresa koje pratimo
-from holders import HOLDERS
+def get_token_price(mint_address):
+    try:
+        url = f"https://api.dexscreener.com/latest/dex/tokens/{mint_address}"
+        response = requests.get(url)
+        data = response.json()
+        if "pairs" in data and len(data["pairs"]) > 0:
+            return float(data["pairs"][0]["priceUsd"])
+    except Exception as e:
+        print(f"❌ Greška u dohvatanju cene: {e}")
+    return 0.0
 
-scheduler = BlockingScheduler(timezone="Europe/Paris")
+def fetch_global_volume(mint, helius_api_key, start_time, end_time):
+    return (0.0, 0.0)
 
-@scheduler.scheduled_job("interval", minutes=1)  # Promeni na cron nakon testiranja
-def generate_report():
-    print("\n📡 Bot pokrenut. Čeka vreme za izveštaj...")
-    
-    now = datetime.utcnow() + timedelta(hours=2)  # UTC+2
-    start_time = int((now - timedelta(hours=12)).timestamp())
-    end_time = int(now.timestamp())
-
-    print(f"🕕 Vremenski okvir: {datetime.utcfromtimestamp(start_time)} - {datetime.utcfromtimestamp(end_time)}")
-
-    # 1. Aktivnosti holdera
-    holder_msgs = []
-    for holder in HOLDERS:
-        txs = fetch_holder_transactions(holder, MONITORED_MINT, HELIUS_API_KEY, start_time, end_time)
-        for tx in txs:
-            t_type = tx.get("type", "Interakcija")
-            ts = datetime.utcfromtimestamp(tx["timestamp"]) + timedelta(hours=2)
-            msg = f"👤 <b>{t_type}</b>\n• Adresa: {holder}\n• Interakcija sa: {tx['interaction_with']}\n• Vreme: {ts.strftime('%Y-%m-%d %H:%M:%S')}"
-            holder_msgs.append(msg)
-
-    if not holder_msgs:
-        holder_msgs.append("📭 <b>Nema aktivnosti holdera</b>")
-
-    # 2. Cene i globalne kupovine/prodaje
-    price = get_token_price(MONITORED_MINT)
-    buy_total, sell_total = fetch_global_volume(MONITORED_MINT, HELIUS_API_KEY, start_time, end_time)
-
-    # 3. Slanje izveštaja
-    summary = (
-        f"📊 <b>Dnevni izveštaj</b> ({now.strftime('%Y-%m-%d %H:%M')})\n"
-        f"<b>Cena:</b> ${price:.6f}\n"
-        f"<b>Ukupno kupljeno:</b> ${buy_total:,.2f}\n"
-        f"<b>Ukupno prodato:</b> ${sell_total:,.2f}\n"
-        f"<b>Odnos kupovina/prodaja:</b> {buy_total / (sell_total or 1):.2f}"
-    )
-
-    send_telegram_message(summary)
-    for m in holder_msgs:
-        send_telegram_message(m)
-
-if __name__ == "__main__":
-    scheduler.start()
+def send_telegram_message(message):
+    telegram_token = os.getenv("BOT_TOKEN")
+    chat_id = os.getenv("CHAT_ID")
+    url = f"https://api.telegram.org/bot{telegram_token}/sendMessage"
+    payload = {"chat_id": chat_id, "text": message, "parse_mode": "HTML"}
+    try:
+        response = requests.post(url, json=payload)
+        print(f"✅ Poruka poslata: {response.status_code}")
+    except Exception as e:
+        print(f"❌ Greška u slanju poruke: {e}")
 
