@@ -1,32 +1,34 @@
-import requests
-from datetime import datetime
-import os
+from collections import Counter
 
-def fetch_holder_transactions(holder, mint, helius_api_key, start_time, end_time):
-    return []
+# Prikupi sve transakcije top holdera
+all_transactions = []
+for holder in holders:
+    txs = fetch_holder_transactions(holder, mint, HELIUS_API_KEY, start_time, end_time)
+    all_transactions.extend(txs)
 
-def get_token_price(mint_address):
-    try:
-        url = f"https://api.dexscreener.com/latest/dex/tokens/{mint_address}"
-        response = requests.get(url)
-        data = response.json()
-        if "pairs" in data and len(data["pairs"]) > 0:
-            return float(data["pairs"][0]["priceUsd"])
-    except Exception as e:
-        print(f"❌ Greška u dohvatanju cene: {e}")
-    return 0.0
+if not all_transactions:
+    send_telegram_message("📫 Nema aktivnosti holdera")
+    return
 
-def fetch_global_volume(mint, helius_api_key, start_time, end_time):
-    return (0.0, 0.0)
+# Računaj broj transakcija po adresi
+address_counts = Counter(tx["owner"] for tx in all_transactions)
+most_active_holder, max_count = address_counts.most_common(1)[0]
 
-def send_telegram_message(message):
-    telegram_token = os.getenv("BOT_TOKEN")
-    chat_id = os.getenv("CHAT_ID")
-    url = f"https://api.telegram.org/bot{telegram_token}/sendMessage"
-    payload = {"chat_id": chat_id, "text": message, "parse_mode": "HTML"}
-    try:
-        response = requests.post(url, json=payload)
-        print(f"✅ Poruka poslata: {response.status_code}")
-    except Exception as e:
-        print(f"❌ Greška u slanju poruke: {e}")
+# Računaj ukupnu vrednost kupovina i prodaja
+total_buy = sum(tx["usd_value"] for tx in all_transactions if tx["type"] == "BUY")
+total_sell = sum(tx["usd_value"] for tx in all_transactions if tx["type"] == "SELL")
+ratio = round(total_buy / total_sell, 2) if total_sell > 0 else "∞"
 
+# Formatiraj poruku
+report = f"""📊 Dnevni izveštaj ({datetime.utcnow().strftime('%Y-%m-%d %H:%M')})
+Cena: ${token_price:.6f}
+
+Ukupno kupljeno: ${total_buy:,.2f}
+Ukupno prodato: ${total_sell:,.2f}
+Odnos kupovina/prodaja: {ratio}
+
+🔁 Broj transakcija holdera: {len(all_transactions)}
+🔥 Najaktivniji holder: {most_active_holder} ({max_count} transakcije)
+"""
+
+send_telegram_message(report)
