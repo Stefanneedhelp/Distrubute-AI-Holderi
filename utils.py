@@ -28,7 +28,6 @@ def send_telegram_message(message):
         print(f"[Telegram Error] {e}")
 
 def get_token_price():
-    # Dummy cena, zameni pravim API pozivom ako imaš
     return 0.01678
 
 def fetch_holder_transactions(holder, mint, helius_api_key, start_time, end_time):
@@ -86,16 +85,25 @@ def send_daily_report():
         txs = fetch_holder_transactions(holder, MONITORED_MINT, HELIUS_API_KEY, start_time, end_time)
         all_transactions.extend(txs)
 
+    total_buy = sum(tx["usd_value"] for tx in all_transactions if tx["type"] == "BUY")
+    total_sell = sum(tx["usd_value"] for tx in all_transactions if tx["type"] == "SELL")
+    ratio = round(total_buy / total_sell, 2) if total_sell > 0 else "∞"
+
     if not all_transactions:
-        send_telegram_message("📫 Nema aktivnosti holdera")
+        report = f"""📊 Dnevni izveštaj ({now.strftime('%Y-%m-%d %H:%M')})
+Cena: ${token_price:.6f}
+
+Ukupno kupljeno: $0.00
+Ukupno prodato: $0.00
+Odnos kupovina/prodaja: 0.00
+
+📭 <b>Nema aktivnosti holdera</b>
+"""
+        send_telegram_message(report)
         return
 
     address_counts = Counter(tx["owner"] for tx in all_transactions)
     most_active_holder, max_count = address_counts.most_common(1)[0]
-
-    total_buy = sum(tx["usd_value"] for tx in all_transactions if tx["type"] == "BUY")
-    total_sell = sum(tx["usd_value"] for tx in all_transactions if tx["type"] == "SELL")
-    ratio = round(total_buy / total_sell, 2) if total_sell > 0 else "∞"
 
     report = f"""📊 Dnevni izveštaj ({now.strftime('%Y-%m-%d %H:%M')})
 Cena: ${token_price:.6f}
