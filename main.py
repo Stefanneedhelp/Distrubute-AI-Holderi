@@ -17,7 +17,7 @@ scheduler = BlockingScheduler(timezone="Europe/Paris")
 @scheduler.scheduled_job("interval", minutes=1)  # Promeni na cron nakon testiranja
 def generate_report():
     print("\n📡 Bot pokrenut. Čeka vreme za izveštaj...")
-    
+
     now = datetime.utcnow() + timedelta(hours=2)  # UTC+2
     start_time = int((now - timedelta(hours=12)).timestamp())
     end_time = int(now.timestamp())
@@ -34,11 +34,8 @@ def generate_report():
             msg = f"👤 <b>{t_type}</b>\n• Adresa: {holder}\n• Interakcija sa: {tx['interaction_with']}\n• Vreme: {ts.strftime('%Y-%m-%d %H:%M:%S')}"
             holder_msgs.append(msg)
 
-    if not holder_msgs:
-        holder_msgs.append("📭 <b>Nema aktivnosti holdera</b>")
-
     # 2. Cene i globalne kupovine/prodaje
-    price = get_token_price(MONITORED_MINT)
+    price = get_token_price()
     buy_total, sell_total = fetch_global_volume(MONITORED_MINT, HELIUS_API_KEY, start_time, end_time)
 
     # 3. Slanje izveštaja
@@ -51,8 +48,13 @@ def generate_report():
     )
 
     send_telegram_message(summary)
-    for m in holder_msgs:
-        send_telegram_message(m)
+
+    if holder_msgs:
+        for m in holder_msgs:
+            send_telegram_message(m)
+    else:
+        send_telegram_message("📭 <b>Nema aktivnosti holdera</b>")
 
 if __name__ == "__main__":
     scheduler.start()
+
