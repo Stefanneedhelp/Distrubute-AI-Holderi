@@ -20,7 +20,8 @@ def send_telegram_message(message):
     payload = {
         "chat_id": CHAT_ID,
         "text": message,
-        "parse_mode": "HTML"
+        "parse_mode": "HTML",
+        "disable_web_page_preview": True
     }
     try:
         requests.post(url, json=payload)
@@ -42,6 +43,7 @@ def fetch_holder_transactions(holder, mint, helius_api_key, start_time, end_time
                 filtered.append({
                     "owner": holder,
                     "usd_value": float(tx.get("tokenValue", 0)) * get_token_price(),
+                    "token_amount": float(tx.get("tokenValue", 0)),
                     "type": "BUY" if tx.get("tokenStandard") == "fungible" else "SELL",
                     "interaction_with": tx.get("tokenAccount", "N/A"),
                     "timestamp": timestamp
@@ -122,5 +124,18 @@ Odnos kupovina/prodaja: {ratio}
 """
 
     send_telegram_message(report)
+
+    # Detaljne poruke po transakciji
+    for tx in all_transactions:
+        index = holders.index(tx["owner"]) + 1 if tx["owner"] in holders else "?"
+        ts = datetime.utcfromtimestamp(tx["timestamp"]) + timedelta(hours=2)
+        msg = (
+            f"👤 <b>{tx['type']}</b> #{index}\n"
+            f"• Adresa: <a href='https://solscan.io/account/{tx['owner']}'>{tx['owner'][:6]}...{tx['owner'][-4:]}</a>\n"
+            f"• Količina: {tx['token_amount']:,.2f} tokena\n"
+            f"• Interakcija sa: {tx['interaction_with']}\n"
+            f"• Vreme: {ts.strftime('%Y-%m-%d %H:%M:%S')}"
+        )
+        send_telegram_message(msg)
 
 
