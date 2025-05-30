@@ -1,6 +1,5 @@
 from datetime import datetime, timedelta
 import os
-from utils import fetch_holder_transactions, get_token_price, fetch_global_volume, send_telegram_message
 from apscheduler.schedulers.blocking import BlockingScheduler
 
 # Učitavanje okruženja
