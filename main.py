@@ -1,72 +1,58 @@
-import os
-import requests
 from datetime import datetime, timedelta
-from dotenv import load_dotenv
-from apscheduler.schedulers.background import BackgroundScheduler
-from holders import HOLDERS
-from utils import fetch_holder_transactions, get_token_price, fetch_global_volume, format_holder_report, send_telegram_message
+import os
+from utils import fetch_holder_transactions, get_token_price, fetch_global_volume, send_telegram_message
+from apscheduler.schedulers.blocking import BlockingScheduler
 
-load_dotenv()
-
+# Učitavanje okruženja
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 CHAT_ID = os.getenv("CHAT_ID")
-TOKEN_MINT = os.getenv("MONITORED_MINT")
+MONITORED_MINT = os.getenv("MONITORED_MINT")
+HELIUS_API_KEY = os.getenv("HELIUS_API_KEY")
 
-scheduler = BackgroundScheduler(timezone="Europe/Belgrade")  # UTC+2
+# Lista adresa koje pratimo
+from holders import HOLDERS
 
+scheduler = BlockingScheduler(timezone="Europe/Paris")
 
-def daily_report():
-    now = datetime.utcnow() + timedelta(hours=2)
-    start_time = int((now - timedelta(minutes=1)).timestamp())
+@scheduler.scheduled_job("interval", minutes=1)  # Promeni na cron nakon testiranja
+def generate_report():
+    print("\n📡 Bot pokrenut. Čeka vreme za izveštaj...")
+    
+    now = datetime.utcnow() + timedelta(hours=2)  # UTC+2
+    start_time = int((now - timedelta(hours=12)).timestamp())
     end_time = int(now.timestamp())
 
-    # Cena tokena
-    price = get_token_price(TOKEN_MINT)
+    print(f"🕕 Vremenski okvir: {datetime.utcfromtimestamp(start_time)} - {datetime.utcfromtimestamp(end_time)}")
 
-    # Aktivnosti holdera
-    holder_activities = []
+    # 1. Aktivnosti holdera
+    holder_msgs = []
     for holder in HOLDERS:
-        txs = fetch_holder_transactions(holder, TOKEN_MINT, start_time, end_time)
-        if txs:
-            holder_activities.append((holder, txs))
+        txs = fetch_holder_transactions(holder, MONITORED_MINT, HELIUS_API_KEY, start_time, end_time)
+        for tx in txs:
+            t_type = tx.get("type", "Interakcija")
+            ts = datetime.utcfromtimestamp(tx["timestamp"]) + timedelta(hours=2)
+            msg = f"👤 <b>{t_type}</b>\n• Adresa: {holder}\n• Interakcija sa: {tx['interaction_with']}\n• Vreme: {ts.strftime('%Y-%m-%d %H:%M:%S')}"
+            holder_msgs.append(msg)
 
-    # Ukupna market aktivnost
-    global_stats = fetch_global_volume(TOKEN_MINT, start_time, end_time)
+    if not holder_msgs:
+        holder_msgs.append("📭 <b>Nema aktivnosti holdera</b>")
 
-    # Formatiranje poruke
-    report = f"\u2728 <b>Dnevni izve\u0161taj za {now.strftime('%d.%m.%Y %H:%M:%S')}</b> (UTC+2)\n"
-    report += f"\n<b>Cena:</b> ${price:.6f}" if price else "\n<b>Cena:</b> N/A"
-    
-    if global_stats:
-        total_buy, total_sell = global_stats
-        total = total_buy + total_sell
-        if total > 0:
-            buy_pct = (total_buy / total) * 100
-            sell_pct = (total_sell / total) * 100
-            report += f"\n<b>Ukupno kupljeno:</b> ${total_buy:,.2f} ({buy_pct:.1f}%)"
-            report += f"\n<b>Ukupno prodato:</b> ${total_sell:,.2f} ({sell_pct:.1f}%)"
-    else:
-        report += "\n<b>Ukupna aktivnost:</b> N/A"
+    # 2. Cene i globalne kupovine/prodaje
+    price = get_token_price(MONITORED_MINT)
+    buy_total, sell_total = fetch_global_volume(MONITORED_MINT, HELIUS_API_KEY, start_time, end_time)
 
-    if holder_activities:
-        report += "\n\n<b>Aktivnosti top holdera:</b>"
-        for addr, txs in holder_activities:
-            for tx in txs:
-                time = datetime.utcfromtimestamp(tx['timestamp']) + timedelta(hours=2)
-                report += f"\n- {tx['type']} sa <code>{tx['counterparty']}</code> u {time.strftime('%H:%M:%S')}"
-    else:
-        report += "\n\n<b>📭 Nema aktivnosti top holdera u prethodnih 24h.</b>"
+    # 3. Slanje izveštaja
+    summary = (
+        f"📊 <b>Dnevni izveštaj</b> ({now.strftime('%Y-%m-%d %H:%M')})\n"
+        f"<b>Cena:</b> ${price:.6f}\n"
+        f"<b>Ukupno kupljeno:</b> ${buy_total:,.2f}\n"
+        f"<b>Ukupno prodato:</b> ${sell_total:,.2f}\n"
+        f"<b>Odnos kupovina/prodaja:</b> {buy_total / (sell_total or 1):.2f}"
+    )
 
-    send_telegram_message(BOT_TOKEN, CHAT_ID, report)
-
-
-scheduler.add_job(daily_report, "interval", minutes=1)
-scheduler.start()
+    send_telegram_message(summary)
+    for m in holder_msgs:
+        send_telegram_message(m)
 
 if __name__ == "__main__":
-    print("📡 Bot pokrenut. Čeka vreme za izveštaj...")
-    try:
-        while True:
-            pass
-    except (KeyboardInterrupt, SystemExit):
-        scheduler.shutdown()
+    scheduler.start()
