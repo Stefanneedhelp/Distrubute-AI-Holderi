@@ -37,6 +37,12 @@ def fetch_holder_transactions(holder, mint, helius_api_key, start_time, end_time
     try:
         response = requests.get(url)
         txs = response.json()
+
+        print(f"[DEBUG HOLDER TX] holder={holder}")
+        for tx in txs:
+            print(json.dumps(tx, indent=2))
+            break  # samo prvi za pregled
+
         filtered = []
 
         for tx in txs:
@@ -96,6 +102,7 @@ def fetch_global_volume(mint, helius_api_key, start_time, end_time):
     except Exception as e:
         print(f"[Global Volume Error] {e}")
         return 0, 0
+
 
 
 
