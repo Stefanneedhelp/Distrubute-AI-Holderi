@@ -2,63 +2,64 @@ import os
 import requests
 from datetime import datetime, timedelta
 from dotenv import load_dotenv
+from apscheduler.schedulers.blocking import BlockingScheduler
+from utils import fetch_holder_transactions, get_token_price, fetch_global_volume, send_telegram_message
 
 load_dotenv()
 
-TELEGRAM_BOT_TOKEN = os.getenv("BOT_TOKEN")
 CHAT_ID = os.getenv("CHAT_ID")
-MONITORED_ADDRESSES = os.getenv("MONITORED_ADDRESSES", "").split(",")
+TOKEN = os.getenv("BOT_TOKEN")
+HOLDER_ADDRESSES = os.getenv("HOLDER_ADDRESSES", "[]")
 
+scheduler = BlockingScheduler()
 
-def send_telegram_message(text):
-    url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
-    data = {"chat_id": CHAT_ID, "text": text, "parse_mode": "HTML"}
-    requests.post(url, data=data)
-
-
-def fetch_transactions(address, start_time, end_time):
+@scheduler.scheduled_job("cron", hour=6, minute=0)
+def generate_report():
     try:
-        url = f"https://api.helius.xyz/v0/addresses/{address}/transactions?api-key={os.getenv('HELIUS_API_KEY')}"
-        response = requests.get(url)
-        transactions = response.json()
+        now = datetime.utcnow()
+        start_time = now - timedelta(days=1)
+        end_time = now
 
-        holder_activities = []
-        for tx in transactions:
-            ts = datetime.fromtimestamp(tx.get("timestamp", 0))
-            if start_time <= ts <= end_time:
-                for transfer in tx.get("nativeTransfers", []):
-                    if transfer.get("fromUserAccount") == address:
-                        amount = transfer.get("amount", 0) / 1_000_000_000
-                        holder_activities.append(f"{address} poslao {amount:.4f} SOL")
-                    elif transfer.get("toUserAccount") == address:
-                        amount = transfer.get("amount", 0) / 1_000_000_000
-                        holder_activities.append(f"{address} primio {amount:.4f} SOL")
+        print("🕕 Vremenski okvir:", start_time, "-", end_time)
 
-        return holder_activities
+        # Cena tokena
+        price = get_token_price()
+
+        # Aktivnosti holdera
+        activities, holders_with_activity = fetch_holder_transactions(start_time, end_time)
+
+        # Ukupni volumen
+        volume_summary = fetch_global_volume(start_time, end_time)
+
+        if not holders_with_activity:
+            message = f"📈 *Dnevni izveštaj*
+
+💰 Cena tokena: ${price}
+
+📊 Aktivnosti holdera:
+Nema aktivnosti holdera u poslednja 24h."
+        else:
+            message = f"📈 *Dnevni izveštaj*
+
+💰 Cena tokena: ${price}
+
+📊 Aktivnosti holdera:
+"
+            for entry in activities:
+                message += entry + "\n"
+
+        message += f"\n📉 Ukupan volumen:
+{volume_summary}"
+
+        send_telegram_message(message)
+
     except Exception as e:
-        print(f"[Fetch Error] {e}")
-        return []
-
-
-def main():
-    end_time = datetime.utcnow()
-    start_time = end_time - timedelta(hours=24)
-
-    all_activities = []
-    for idx, addr in enumerate(MONITORED_ADDRESSES):
-        activities = fetch_transactions(addr, start_time, end_time)
-        if activities:
-            all_activities.append(f"👤 Holder #{idx + 1}: <a href='https://solscan.io/account/{addr}'>{addr}</a>")
-            all_activities.extend(activities)
-
-    if not all_activities:
-        send_telegram_message("📭 Nema aktivnosti holdera u prethodna 24h.")
-    else:
-        send_telegram_message("\n".join(all_activities))
+        print("[Greška u izveštaju]", e)
 
 
 if __name__ == "__main__":
-    main()
+    print("📡 Bot pokrenut. Čeka vreme za izveštaj...")
+    scheduler.start()
 
 
 
