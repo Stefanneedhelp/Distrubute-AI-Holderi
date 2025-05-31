@@ -2,6 +2,7 @@ import os
 import requests
 from datetime import datetime, timedelta
 from collections import Counter
+import json
 
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 CHAT_ID = os.getenv("CHAT_ID")
@@ -32,23 +33,33 @@ def get_token_price():
     return 0.01678
 
 def fetch_holder_transactions(holder, mint, helius_api_key, start_time, end_time):
-    url = f"https://api.helius.xyz/v0/addresses/{holder}/transactions?api-key={helius_api_key}&mint={mint}&type=TRANSFER"
+    url = f"https://api.helius.xyz/v0/addresses/{holder}/transactions?api-key={helius_api_key}"
     try:
         response = requests.get(url)
         txs = response.json()
         filtered = []
+
         for tx in txs:
             timestamp = tx.get("timestamp", 0)
-            token_value = float(tx.get("tokenValue", 0))
-            filtered.append({
-                "owner": holder,
-                "usd_value": token_value * get_token_price(),
-                "token_amount": token_value,
-                "type": "BUY" if tx.get("tokenStandard") == "fungible" else "SELL",
-                "interaction_with": tx.get("tokenAccount", "N/A"),
-                "timestamp": timestamp
-            })
-        return [tx for tx in filtered if start_time <= tx["timestamp"] <= end_time]
+            if not (start_time <= timestamp <= end_time):
+                continue
+
+            token_transfers = tx.get("tokenTransfers", [])
+            for transfer in token_transfers:
+                if transfer.get("mint") != mint:
+                    continue
+
+                amount = float(transfer.get("tokenAmount", {}).get("amount", 0)) / (10 ** int(transfer.get("tokenAmount", {}).get("decimals", 0)))
+                filtered.append({
+                    "owner": holder,
+                    "usd_value": amount * get_token_price(),
+                    "token_amount": amount,
+                    "type": "SELL" if transfer.get("fromUserAccount") == holder else "BUY",
+                    "interaction_with": transfer.get("toUserAccount") if transfer.get("fromUserAccount") == holder else transfer.get("fromUserAccount"),
+                    "timestamp": timestamp
+                })
+
+        return filtered
     except Exception as e:
         print(f"[Fetch Error] {e}")
         return []
@@ -69,16 +80,22 @@ def fetch_global_volume(mint, helius_api_key, start_time, end_time):
         for tx in txs:
             ts = tx.get("timestamp")
             if ts and start_time <= ts <= end_time:
-                amount = float(tx.get("tokenValue", 0)) * get_token_price()
-                if tx.get("type") == "BUY":
-                    total_buy += amount
-                elif tx.get("type") == "SELL":
-                    total_sell += amount
+                token_transfers = tx.get("tokenTransfers", [])
+                for transfer in token_transfers:
+                    if transfer.get("mint") != mint:
+                        continue
+                    amount = float(transfer.get("tokenAmount", {}).get("amount", 0)) / (10 ** int(transfer.get("tokenAmount", {}).get("decimals", 0)))
+                    usd_value = amount * get_token_price()
+                    if transfer.get("fromUserAccount") == tx.get("owner"):
+                        total_sell += usd_value
+                    else:
+                        total_buy += usd_value
 
         return total_buy, total_sell
 
     except Exception as e:
         print(f"[Global Volume Error] {e}")
         return 0, 0
+
 
 
