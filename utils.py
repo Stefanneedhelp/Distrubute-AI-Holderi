@@ -39,16 +39,16 @@ def fetch_holder_transactions(holder, mint, helius_api_key, start_time, end_time
         filtered = []
         for tx in txs:
             timestamp = tx.get("timestamp", 0)
-            if start_time <= timestamp <= end_time:
-                filtered.append({
-                    "owner": holder,
-                    "usd_value": float(tx.get("tokenValue", 0)) * get_token_price(),
-                    "token_amount": float(tx.get("tokenValue", 0)),
-                    "type": "BUY" if tx.get("tokenStandard") == "fungible" else "SELL",
-                    "interaction_with": tx.get("tokenAccount", "N/A"),
-                    "timestamp": timestamp
-                })
-        return filtered
+            token_value = float(tx.get("tokenValue", 0))
+            filtered.append({
+                "owner": holder,
+                "usd_value": token_value * get_token_price(),
+                "token_amount": token_value,
+                "type": "BUY" if tx.get("tokenStandard") == "fungible" else "SELL",
+                "interaction_with": tx.get("tokenAccount", "N/A"),
+                "timestamp": timestamp
+            })
+        return [tx for tx in filtered if start_time <= tx["timestamp"] <= end_time]
     except Exception as e:
         print(f"[Fetch Error] {e}")
         return []
@@ -80,62 +80,5 @@ def fetch_global_volume(mint, helius_api_key, start_time, end_time):
     except Exception as e:
         print(f"[Global Volume Error] {e}")
         return 0, 0
-
-def send_daily_report():
-    now = datetime.utcnow()
-    start_time = int((now - timedelta(days=1)).timestamp())
-    end_time = int(now.timestamp())
-    token_price = get_token_price()
-
-    all_transactions = []
-    for holder in holders:
-        txs = fetch_holder_transactions(holder, MONITORED_MINT, HELIUS_API_KEY, start_time, end_time)
-        all_transactions.extend(txs)
-
-    total_buy = sum(tx["usd_value"] for tx in all_transactions if tx["type"] == "BUY")
-    total_sell = sum(tx["usd_value"] for tx in all_transactions if tx["type"] == "SELL")
-    ratio = round(total_buy / total_sell, 2) if total_sell > 0 else "∞"
-
-    if not all_transactions:
-        report = f"""📊 Dnevni izveštaj ({now.strftime('%Y-%m-%d %H:%M')})
-Cena: ${token_price:.6f}
-
-Ukupno kupljeno: $0.00
-Ukupno prodato: $0.00
-Odnos kupovina/prodaja: 0.00
-
-📭 <b>Nema aktivnosti holdera</b>
-"""
-        send_telegram_message(report)
-        return
-
-    address_counts = Counter(tx["owner"] for tx in all_transactions)
-    most_active_holder, max_count = address_counts.most_common(1)[0]
-
-    report = f"""📊 Dnevni izveštaj ({now.strftime('%Y-%m-%d %H:%M')})
-Cena: ${token_price:.6f}
-
-Ukupno kupljeno: ${total_buy:,.2f}
-Ukupno prodato: ${total_sell:,.2f}
-Odnos kupovina/prodaja: {ratio}
-
-🔁 Broj transakcija holdera: {len(all_transactions)}
-🔥 Najaktivniji holder: {most_active_holder} ({max_count} transakcije)
-"""
-
-    send_telegram_message(report)
-
-    # Detaljne poruke po transakciji
-    for tx in all_transactions:
-        index = holders.index(tx["owner"]) + 1 if tx["owner"] in holders else "?"
-        ts = datetime.utcfromtimestamp(tx["timestamp"]) + timedelta(hours=2)
-        msg = (
-            f"👤 <b>{tx['type']}</b> #{index}\n"
-            f"• Adresa: <a href='https://solscan.io/account/{tx['owner']}'>{tx['owner'][:6]}...{tx['owner'][-4:]}</a>\n"
-            f"• Količina: {tx['token_amount']:,.2f} tokena\n"
-            f"• Interakcija sa: {tx['interaction_with']}\n"
-            f"• Vreme: {ts.strftime('%Y-%m-%d %H:%M:%S')}"
-        )
-        send_telegram_message(msg)
 
 
