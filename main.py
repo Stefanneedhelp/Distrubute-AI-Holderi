@@ -20,8 +20,8 @@ def generate_report():
     print("\n📡 Bot pokrenut. Čeka vreme za izveštaj...")
 
     now = datetime.utcnow() + timedelta(hours=2)  # UTC+2
-    start_time = int((now - timedelta(hours=12)).timestamp())
     end_time = int(now.timestamp())
+    start_time = int((now - timedelta(minutes=15)).timestamp())
 
     print(f"🕕 Vremenski okvir: {datetime.utcfromtimestamp(start_time)} - {datetime.utcfromtimestamp(end_time)}")
 
@@ -71,6 +71,7 @@ def generate_report():
 
 if __name__ == "__main__":
     scheduler.start()
+
 
 
 
