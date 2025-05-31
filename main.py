@@ -14,7 +14,8 @@ from holders import HOLDERS
 
 scheduler = BlockingScheduler(timezone="Europe/Paris", max_instances=1)
 
-@scheduler.scheduled_job("cron", hour=6, minute=0)
+@scheduler.scheduled_job("interval", minutes=2)  # Za testiranje svakih 2 minuta
+
 def generate_report():
     print("\n📡 Bot pokrenut. Čeka vreme za izveštaj...")
 
@@ -61,7 +62,8 @@ def generate_report():
         msg = (
             f"👤 <b>{tx['type']}</b> #{index}\n"
             f"• Adresa: <a href='https://solscan.io/account/{tx['owner']}'>{tx['owner'][:6]}...{tx['owner'][-4:]}</a>\n"
-            f"• Količina: {tx['token_amount']:,.2f} tokena\n"
+            f"• Količina: {tx.get('token_amount', 0):,.2f} tokena\n"
+            f"• Vrednost: ${tx['usd_value']:,.2f}\n"
             f"• Interakcija sa: {tx['interaction_with']}\n"
             f"• Vreme: {ts.strftime('%Y-%m-%d %H:%M:%S')}"
         )
@@ -69,5 +71,6 @@ def generate_report():
 
 if __name__ == "__main__":
     scheduler.start()
+
 
 
