@@ -1,71 +1,134 @@
 import os
+import requests
 from datetime import datetime, timedelta
-from apscheduler.schedulers.blocking import BlockingScheduler
-from utils import fetch_holder_transactions, get_token_price, fetch_global_volume, send_telegram_message
-from holders import HOLDERS
+from collections import Counter
+import json
 
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 CHAT_ID = os.getenv("CHAT_ID")
-MONITORED_MINT = os.getenv("MONITORED_MINT")
 HELIUS_API_KEY = os.getenv("HELIUS_API_KEY")
+MONITORED_MINT = os.getenv("MONITORED_MINT")
 
-scheduler = BlockingScheduler(
-    timezone="Europe/Paris",
-    max_instances=1,
-    coalesce=True,
-    misfire_grace_time=60
-)
+def send_telegram_message(message):
+    url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
+    payload = {
+        "chat_id": CHAT_ID,
+        "text": message,
+        "parse_mode": "HTML",
+        "disable_web_page_preview": True
+    }
+    try:
+        requests.post(url, json=payload)
+    except Exception as e:
+        print(f"[Telegram Error] {e}")
 
-@scheduler.scheduled_job("interval", minutes=2)
-# Kasnije promeniti u cron: hour=6, minute=0
-def generate_report():
-    print("\n📡 Bot pokrenut. Čeka vreme za izveštaj...")
+def get_token_price():
+    return 0.01678
 
-    now = datetime.utcnow() + timedelta(hours=2)  # lokalno vreme (CEST)
-    start_time = int((now - timedelta(hours=12)).timestamp())
-    end_time = int(now.timestamp())
+def fetch_holder_transactions(holder, mint, helius_api_key, start_time, end_time):
+    url = f"https://api.helius.xyz/v0/addresses/{holder}/transactions?api-key={helius_api_key}"
+    try:
+        response = requests.get(url)
+        txs = response.json()
 
-    print(f"🕕 Vremenski okvir: {datetime.utcfromtimestamp(start_time)} - {datetime.utcfromtimestamp(end_time)}")
+        filtered = []
 
-    # 1. Aktivnosti holdera
-    holder_msgs = []
-    for index, holder in enumerate(HOLDERS):
-        txs = fetch_holder_transactions(holder, MONITORED_MINT, HELIUS_API_KEY, start_time, end_time)
         for tx in txs:
-            t_type = tx.get("type", "Interakcija")
-            ts = datetime.utcfromtimestamp(tx["timestamp"]) + timedelta(hours=2)
-            amount = tx.get("token_amount", 0)
-            msg = (
-                f"👤 <b>{t_type}</b> | Holder #{index+1}\n"
-                f"• <a href='https://solscan.io/account/{holder}?cluster=mainnet'>{holder}</a>\n"
-                f"• Količina: {amount:,.2f} tokena\n"
-                f"• Interakcija sa: {tx['interaction_with']}\n"
-                f"• Vreme: {ts.strftime('%Y-%m-%d %H:%M:%S')}"
-            )
-            holder_msgs.append(msg)
+            timestamp = tx.get("timestamp", 0)
+            if not (start_time <= timestamp <= end_time):
+                continue
 
-    if not holder_msgs:
-        holder_msgs.append("📭 <b>Nema aktivnosti holdera</b>")
+            # 1. tokenTransfers ako postoje
+            token_transfers = tx.get("tokenTransfers", [])
+            for transfer in token_transfers:
+                if transfer.get("mint") != mint:
+                    continue
 
-    # 2. Cene i globalne kupovine/prodaje
-    price = get_token_price()
-    buy_total, sell_total = fetch_global_volume(MONITORED_MINT, HELIUS_API_KEY, start_time, end_time)
+                amount = float(transfer.get("tokenAmount", {}).get("amount", 0)) / (10 ** int(transfer.get("tokenAmount", {}).get("decimals", 0)))
+                filtered.append({
+                    "owner": holder,
+                    "usd_value": amount * get_token_price(),
+                    "token_amount": amount,
+                    "type": "SELL" if transfer.get("fromUserAccount") == holder else "BUY",
+                    "interaction_with": transfer.get("toUserAccount") if transfer.get("fromUserAccount") == holder else transfer.get("fromUserAccount"),
+                    "timestamp": timestamp
+                })
 
-    # 3. Slanje izveštaja
-    summary = (
-        f"📊 <b>Dnevni izveštaj</b> ({now.strftime('%Y-%m-%d %H:%M')})\n"
-        f"<b>Cena:</b> ${price:.6f}\n"
-        f"<b>Ukupno kupljeno:</b> ${buy_total:,.2f}\n"
-        f"<b>Ukupno prodato:</b> ${sell_total:,.2f}\n"
-        f"<b>Odnos kupovina/prodaja:</b> {buy_total / (sell_total or 1):.2f}"
-    )
+            # 2. instructions fallback
+            if not token_transfers:
+                instructions = tx.get("events", {}).get("instructions", []) or tx.get("instructions", [])
+                for instr in instructions:
+                    parsed = instr.get("parsed", {})
+                    info = parsed.get("info", {})
+                    if not info:
+                        continue
 
-    send_telegram_message(summary)
-    for m in holder_msgs:
-        send_telegram_message(m)
+                    amount = float(info.get("amount", 0))
+                    if amount == 0:
+                        continue
 
-if __name__ == "__main__":
-    scheduler.start()
+                    filtered.append({
+                        "owner": holder,
+                        "usd_value": amount * get_token_price(),
+                        "token_amount": amount,
+                        "type": "SELL",
+                        "interaction_with": info.get("destination") or info.get("source", "N/A"),
+                        "timestamp": timestamp
+                    })
+
+            # 3. nativeTransfers fallback
+            native_transfers = tx.get("nativeTransfers", [])
+            for n in native_transfers:
+                if n.get("fromUserAccount") == holder:
+                    lamports = int(n.get("amount", 0))
+                    sol = lamports / 1_000_000_000  # convert lamports to SOL
+                    filtered.append({
+                        "owner": holder,
+                        "usd_value": sol * get_token_price(),
+                        "token_amount": sol,
+                        "type": "SELL",
+                        "interaction_with": n.get("toUserAccount"),
+                        "timestamp": timestamp
+                    })
+
+        return filtered
+    except Exception as e:
+        print(f"[Fetch Error] {e}")
+        return []
+
+def fetch_global_volume(mint, helius_api_key, start_time, end_time):
+    url = f"https://api.helius.xyz/v0/token-mints/{mint}/transactions?api-key={helius_api_key}"
+    try:
+        response = requests.get(url)
+        txs = response.json()
+
+        if not isinstance(txs, list):
+            print("[Global Volume] Neočekivan odgovor:", txs)
+            return 0, 0
+
+        total_buy = 0
+        total_sell = 0
+
+        for tx in txs:
+            ts = tx.get("timestamp")
+            if ts and start_time <= ts <= end_time:
+                token_transfers = tx.get("tokenTransfers", [])
+                for transfer in token_transfers:
+                    if transfer.get("mint") != mint:
+                        continue
+                    amount = float(transfer.get("tokenAmount", {}).get("amount", 0)) / (10 ** int(transfer.get("tokenAmount", {}).get("decimals", 0)))
+                    usd_value = amount * get_token_price()
+                    if transfer.get("fromUserAccount") == tx.get("owner"):
+                        total_sell += usd_value
+                    else:
+                        total_buy += usd_value
+
+        return total_buy, total_sell
+
+    except Exception as e:
+        print(f"[Global Volume Error] {e}")
+        return 0, 0
+
 
 
 
