@@ -14,7 +14,7 @@ from holders import HOLDERS
 
 scheduler = BlockingScheduler(timezone="Europe/Paris", max_instances=1)
 
-@scheduler.scheduled_job("interval", minutes=2)  # Za testiranje svakih 2 minuta
+@scheduler.scheduled_job("interval", minutes=15)  # Za testiranje svakih 2 minuta
 
 def generate_report():
     print("\n📡 Bot pokrenut. Čeka vreme za izveštaj...")
