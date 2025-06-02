@@ -2,3 +2,4 @@ requests
 python-dotenv
 apscheduler
 python-telegram-bot==20.7
+pytz
