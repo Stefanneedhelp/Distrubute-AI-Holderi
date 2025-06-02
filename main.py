@@ -1,80 +1,57 @@
-
-import os
-import pytz
-import logging
-from dotenv import load_dotenv
 from telegram import Bot
 from apscheduler.schedulers.blocking import BlockingScheduler
-from apscheduler.triggers.cron import CronTrigger
 from datetime import datetime, timedelta
+from dotenv import load_dotenv
+import pytz
+import os
 
-from utils import (
-    fetch_holder_transactions,
-    get_token_price,
-    fetch_global_volume,
-    send_telegram_message
-)
+from utils import fetch_holder_transactions, get_token_price, fetch_global_volume, send_telegram_message
 
 load_dotenv()
 
-BOT_TOKEN = os.getenv("BOT_TOKEN")
+TOKEN = os.getenv("BOT_TOKEN")
 CHAT_ID = os.getenv("CHAT_ID")
-TOP_HOLDERS = os.getenv("TOP_HOLDERS", "").split(",")
-
-bot = Bot(token=BOT_TOKEN)
-
-logging.basicConfig(level=logging.INFO)
+bot = Bot(token=TOKEN)
+scheduler = BlockingScheduler(timezone="Europe/Paris")
 
 def generate_report():
     try:
         end_time = datetime.now(pytz.utc)
-        start_time = end_time - timedelta(hours=24)
+        start_time = end_time - timedelta(hours=1)
 
-        transactions = fetch_holder_transactions(start_time, end_time, TOP_HOLDERS)
-        price = get_token_price()
-        global_volume = fetch_global_volume(start_time, end_time)
+        holder_data = fetch_holder_transactions(start_time, end_time)
+        token_price = get_token_price()
+        total_volume = fetch_global_volume(start_time, end_time)
 
-        message_lines = [f"📈 *Dnevni izveštaj*\n\n💰 Cena tokena: ${price:.6f}"]
+        message_lines = [
+            f"📈 *Izveštaj za poslednjih 1h*",
+            f"💰 Cena tokena: ${token_price:.6f}",
+            f"🔄 Ukupno kupljeno: ${total_volume['buy']:.2f}",
+            f"🔻 Ukupno prodato: ${total_volume['sell']:.2f}",
+        ]
 
-        if transactions:
-            message_lines.append("\n🧾 Aktivnosti holdera:")
-            for tx in transactions:
-                holder_number = tx.get("rank", "?")
-                address = tx["address"]
-                action = tx["action"]
-                amount = tx["amount"]
-                counterparty = tx.get("counterparty", "Nepoznato")
-                tx_time = tx.get("timestamp", "Nepoznato")
-                link = f"https://solscan.io/account/{address}"
-
+        if holder_data:
+            message_lines.append(f"👥 Aktivnosti top holdera:\n")
+            for holder in holder_data:
+                addr_link = f"[{holder['address']}](https://solscan.io/account/{holder['address']})"
+                action = "kupio" if holder["action"] == "buy" else "prodao" if holder["action"] == "sell" else "primio"
                 message_lines.append(
-                    f"[{holder_number}. Holder]({link}) je *{action}* {amount:.2f} tokena sa {counterparty} u {tx_time}"
+                    f"🔹 Holder #{holder['rank']} {addr_link} je {action} {holder['amount']} tokena u {holder['timestamp']}."
                 )
         else:
-            message_lines.append("\n📭 Nema aktivnosti holdera u poslednja 24h.")
+            message_lines.append("⚠️ Nema aktivnosti holdera u poslednjih 1h.")
 
-        if global_volume:
-            message_lines.append(f"\n📊 Ukupan promet:\n- Kupovine: ${global_volume['buy']:.2f}\n- Prodaje: ${global_volume['sell']:.2f}")
-        else:
-            message_lines.append("\n⚠️ Nema globalnog volumena.")
-
-        send_telegram_message(bot, CHAT_ID, "\n".join(message_lines))
+        message = "\n".join(message_lines)
+        send_telegram_message(bot, CHAT_ID, message)
 
     except Exception as e:
-        logging.error(f"[Greška u izveštaju] {e}")
+        print(f"[Greška u izveštaju] {e}")
 
-# Zakazivanje
-scheduler = BlockingScheduler(timezone='Europe/Paris')
+# Zakazivanje izveštaja svakih 1 sat
+scheduler.add_job(generate_report, 'interval', hours=1)
 
-# Svaki dan u 6:00
-scheduler.add_job(generate_report, CronTrigger(hour=6, minute=0))
-
-# TEMP: pokreći svakih 60 minuta (za testiranje — ukloni kad prebaciš na samo 6h)
-# from apscheduler.triggers.interval import IntervalTrigger
-# scheduler.add_job(generate_report, IntervalTrigger(minutes=60))
-
-generate_report()  # Pozovi odmah pri startovanju (testiranje)
-scheduler.start()
+if __name__ == "__main__":
+    scheduler.start()
 
 
 
