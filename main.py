@@ -31,11 +31,12 @@ def generate_report():
             "📈 *Izveštaj za poslednjih 1h*",
             f"💰 Cena tokena: ${token_price:.6f}",
             f"🔄 Ukupno kupljeno: ${total_volume['buy']:.2f}",
-            f"🔻 Ukupno prodato: ${total_volume['sell']:.2f}",
+            f"🔻 Ukupno prodato: ${total_volume['sell']:.2f}"
         ]
 
         if holder_data:
             message_lines.append("👥 Aktivnosti top holdera:\n")
+
             # Pronađi najaktivnijeg
             activity_counts = {}
             for holder in holder_data:
@@ -60,7 +61,7 @@ def generate_report():
     except Exception as e:
         logging.error(f"[Greška u izveštaju] {e}")
 
-# Zakazivanje izveštaja na 1h
+# Zakazivanje izveštaja na 1 sat
 scheduler.add_job(generate_report, 'interval', hours=1)
 
 if __name__ == "__main__":
