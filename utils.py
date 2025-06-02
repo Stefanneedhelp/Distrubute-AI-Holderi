@@ -1,107 +1,107 @@
-import os
 import requests
-from datetime import datetime, timedelta
-from collections import Counter
-import json
+import os
+import logging
+from datetime import datetime
+from dotenv import load_dotenv
 
-BOT_TOKEN = os.getenv("BOT_TOKEN")
-CHAT_ID = os.getenv("CHAT_ID")
-HELIUS_API_KEY = os.getenv("HELIUS_API_KEY")
-MONITORED_MINT = os.getenv("MONITORED_MINT")
+load_dotenv()
 
-# Lista top holder adresa
-holders = [
-    "Adresa1...",
-    "Adresa2...",
-    # dodaj ostale top adrese ovde
-]
+DEX_API = "https://api.dexscreener.com/latest/dex/pairs/solana/"
+MINT_ADDRESS = os.getenv("MONITORED_MINT")
+HOLDER_LIST = os.getenv("HOLDER_LIST").split(",")  # lista adresa razdvojena zarezima
 
-def send_telegram_message(message):
-    url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
-    payload = {
-        "chat_id": CHAT_ID,
-        "text": message,
-        "parse_mode": "HTML",
-        "disable_web_page_preview": True
-    }
+def fetch_holder_transactions(start_time, end_time):
     try:
-        requests.post(url, json=payload)
-    except Exception as e:
-        print(f"[Telegram Error] {e}")
+        response = requests.get(os.getenv("WEBHOOK_URL"))
+        data = response.json()
 
-def get_token_price():
-    return 0.01678
+        transactions = data if isinstance(data, list) else [data]
+        holder_actions = []
 
-def fetch_holder_transactions(holder, mint, helius_api_key, start_time, end_time):
-    url = f"https://api.helius.xyz/v0/addresses/{holder}/transactions?api-key={helius_api_key}"
-    try:
-        response = requests.get(url)
-        txs = response.json()
-
-        print(f"[DEBUG HOLDER TX] holder={holder}")
-        for tx in txs:
-            print(json.dumps(tx, indent=2))
-            break  # samo prvi za pregled
-
-        filtered = []
-
-        for tx in txs:
-            timestamp = tx.get("timestamp", 0)
-            if not (start_time <= timestamp <= end_time):
+        for tx in transactions:
+            tx_time = datetime.utcfromtimestamp(tx["timestamp"])
+            if not (start_time <= tx_time <= end_time):
                 continue
 
-            token_transfers = tx.get("tokenTransfers", [])
-            for transfer in token_transfers:
-                if transfer.get("mint") != mint:
-                    continue
+            for transfer in tx.get("nativeTransfers", []):
+                from_addr = transfer.get("fromUserAccount")
+                to_addr = transfer.get("toUserAccount")
 
-                amount = float(transfer.get("tokenAmount", {}).get("amount", 0)) / (10 ** int(transfer.get("tokenAmount", {}).get("decimals", 0)))
-                filtered.append({
-                    "owner": holder,
-                    "usd_value": amount * get_token_price(),
-                    "token_amount": amount,
-                    "type": "SELL" if transfer.get("fromUserAccount") == holder else "BUY",
-                    "interaction_with": transfer.get("toUserAccount") if transfer.get("fromUserAccount") == holder else transfer.get("fromUserAccount"),
-                    "timestamp": timestamp
-                })
+                if from_addr in HOLDER_LIST or to_addr in HOLDER_LIST:
+                    action = None
+                    holder_address = from_addr if from_addr in HOLDER_LIST else to_addr
 
-        return filtered
+                    if from_addr in HOLDER_LIST and to_addr not in HOLDER_LIST:
+                        action = "sell"
+                    elif to_addr in HOLDER_LIST and from_addr not in HOLDER_LIST:
+                        action = "buy"
+                    else:
+                        action = "transfer"
+
+                    holder_actions.append({
+                        "rank": HOLDER_LIST.index(holder_address) + 1,
+                        "address": holder_address,
+                        "amount": transfer["amount"] / 1e9,
+                        "timestamp": tx_time.strftime("%H:%M"),
+                        "action": action
+                    })
+
+        return holder_actions
     except Exception as e:
-        print(f"[Fetch Error] {e}")
+        logging.error(f"[Greška u fetch_holder_transactions] {e}")
         return []
 
-def fetch_global_volume(mint, helius_api_key, start_time, end_time):
-    url = f"https://api.helius.xyz/v0/token-mints/{mint}/transactions?api-key={helius_api_key}"
+def fetch_global_volume(start_time, end_time):
     try:
-        response = requests.get(url)
-        txs = response.json()
+        response = requests.get(os.getenv("WEBHOOK_URL"))
+        data = response.json()
 
-        if not isinstance(txs, list):
-            print("[Global Volume] Neočekivan odgovor:", txs)
-            return 0, 0
-
+        transactions = data if isinstance(data, list) else [data]
         total_buy = 0
         total_sell = 0
+        activity_counter = {}
 
-        for tx in txs:
-            ts = tx.get("timestamp")
-            if ts and start_time <= ts <= end_time:
-                token_transfers = tx.get("tokenTransfers", [])
-                for transfer in token_transfers:
-                    if transfer.get("mint") != mint:
-                        continue
-                    amount = float(transfer.get("tokenAmount", {}).get("amount", 0)) / (10 ** int(transfer.get("tokenAmount", {}).get("decimals", 0)))
-                    usd_value = amount * get_token_price()
-                    if transfer.get("fromUserAccount") == tx.get("owner"):
-                        total_sell += usd_value
-                    else:
-                        total_buy += usd_value
+        for tx in transactions:
+            tx_time = datetime.utcfromtimestamp(tx["timestamp"])
+            if not (start_time <= tx_time <= end_time):
+                continue
 
-        return total_buy, total_sell
+            for transfer in tx.get("nativeTransfers", []):
+                from_addr = transfer.get("fromUserAccount")
+                to_addr = transfer.get("toUserAccount")
 
+                if from_addr in HOLDER_LIST:
+                    total_sell += transfer["amount"] / 1e9
+                    activity_counter[from_addr] = activity_counter.get(from_addr, 0) + 1
+                elif to_addr in HOLDER_LIST:
+                    total_buy += transfer["amount"] / 1e9
+                    activity_counter[to_addr] = activity_counter.get(to_addr, 0) + 1
+
+        most_active = max(activity_counter.items(), key=lambda x: x[1])[0] if activity_counter else None
+
+        return {
+            "buy": total_buy,
+            "sell": total_sell,
+            "most_active": most_active
+        }
     except Exception as e:
-        print(f"[Global Volume Error] {e}")
-        return 0, 0
+        logging.error(f"[Greška u fetch_global_volume] {e}")
+        return {"buy": 0, "sell": 0, "most_active": None}
+
+def get_token_price():
+    try:
+        response = requests.get(DEX_API + MINT_ADDRESS)
+        data = response.json()
+        return float(data["pairs"][0]["priceUsd"])
+    except Exception as e:
+        logging.error(f"[Greška u get_token_price] {e}")
+        return 0.0
+
+def send_telegram_message(bot, chat_id, message):
+    try:
+        bot.send_message(chat_id=chat_id, text=message, parse_mode='Markdown', disable_web_page_preview=True)
+    except Exception as e:
+        logging.error(f"[Greška u slanju poruke] {e}")
 
 
 
