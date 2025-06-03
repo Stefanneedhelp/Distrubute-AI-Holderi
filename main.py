@@ -51,7 +51,7 @@ def generate_report():
 
 if __name__ == "__main__":
     scheduler.start()
-
+generate_report()
 
 
 
