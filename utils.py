@@ -1,13 +1,15 @@
-# === utils.py ===
 import os
+import logging
 import requests
 import httpx
-import logging
+import dateutil.parser
 from datetime import datetime
-from dateutil import parser
+from telegram import Bot
 
-TOKEN_MINT = "2AEU9yWk3dEGnVwRaKv4div5TarC4dn7axFLyz6zG4Pf"
-DEX_PAIR = "AyCkqVLkmMnqYCrCh2fFB1xEj29nymzc5t6PvyRHaCKn"
+# Konstante
+HELIUS_API_KEY = os.getenv("HELIUS_API_KEY")
+TOKEN_ADDRESS = "2AEU9yWk3dEGnVwRaKv4div5TarC4dn7axFLyz6zG4Pf"
+DEX_PAIR_ID = "AyCkqVLkmMnqYCrCh2fFB1xEj29nymzc5t6PvyRHaCKn"
 HOLDERS = [
     "7bQ6uYkwKCEfVZ6MifMZzQWd3hp19uUjnZb9HfaQRpVQ",
     "JD25qVdtd65FoiXNmR89JjmoJdYk9sjYQeSTZAALFiMy",
@@ -15,65 +17,87 @@ HOLDERS = [
     "2AEU9yWk3dEGnVwRaKv4div5TarC4dn7axFLyz6zG4Pf"
 ]
 
-API_KEY = os.getenv("HELIUS_API_KEY")
-
-async def send_telegram_message(bot, chat_id, text):
+# Telegram slanje poruke
+async def send_telegram_message(bot: Bot, chat_id: str, text: str):
     await bot.send_message(chat_id=chat_id, text=text, parse_mode="Markdown")
 
+# Cena tokena preko Dexscreener-a
 def get_token_price():
     try:
-        url = f"https://api.dexscreener.com/latest/dex/pairs/solana/{DEX_PAIR}"
-        res = requests.get(url).json()
-        return float(res['pair']['priceUsd'])
+        url = f"https://api.dexscreener.com/latest/dex/pairs/solana/{DEX_PAIR_ID}"
+        res = httpx.get(url).json()
+        return float(res["pair"]["priceUsd"])
     except Exception as e:
         logging.warning(f"[Price Error] {e}")
         return 0.0
 
+# Volume kupovina/prodaja svih adresa u 1h
 def fetch_global_volume(start_time, end_time):
     try:
-        url = f"https://api.helius.xyz/v0/token/{TOKEN_MINT}/transfers?api-key={API_KEY}"
-        res = requests.get(url).json()
+        url = f"https://api.helius.xyz/v0/token/{TOKEN_ADDRESS}/transfers?api-key={HELIUS_API_KEY}"
+        res = httpx.get(url).json()
 
-        buy_usd = 0
-        sell_usd = 0
+        buy_usd = 0.0
+        sell_usd = 0.0
+        price = get_token_price()
+
         for tx in res:
-            timestamp = parser.isoparse(tx["timestamp"])
-            if start_time <= timestamp <= end_time:
-                amount = float(tx["tokenAmount"]) * float(tx.get("tokenPrice", 0))
-                if tx.get("type") == "BUY":
-                    buy_usd += amount
-                elif tx.get("type") == "SELL":
-                    sell_usd += amount
-        ratio = buy_usd / sell_usd if sell_usd else 0
+            ts = dateutil.parser.isoparse(tx["timestamp"])
+            if not (start_time <= ts <= end_time):
+                continue
+
+            amount = int(tx["tokenAmount"]["amount"]) / (10 ** int(tx["tokenAmount"]["decimals"]))
+            direction = tx.get("type")
+            if direction == "TRANSFER" and tx.get("source") == "SWAP":
+                if tx["tokenAmount"]["owner"] == tx["toUserAccount"]:
+                    buy_usd += amount * price
+                else:
+                    sell_usd += amount * price
+
+        ratio = buy_usd / sell_usd if sell_usd != 0 else 0
         return {"buy": buy_usd, "sell": sell_usd, "ratio": ratio}
+
     except Exception as e:
         logging.warning(f"[Volume Error] {e}")
-        return {"buy": 0, "sell": 0, "ratio": 0}
+        return {"buy": 0.0, "sell": 0.0, "ratio": 0.0}
 
+# Aktivnosti holdera
 async def fetch_holder_transactions(start_time, end_time):
-    result = []
-    for i, holder in enumerate(HOLDERS, 1):
+    results = []
+
+    for idx, address in enumerate(HOLDERS, start=1):
         try:
-            url = f"https://api.helius.xyz/v0/addresses/{holder}/transactions?api-key={API_KEY}"
-            res = await httpx.AsyncClient().get(url)
-            data = res.json()
-            for tx in data:
-                timestamp = parser.isoparse(tx["timestamp"])
-                if not (start_time <= timestamp <= end_time):
+            url = f"https://api.helius.xyz/v0/addresses/{address}/transactions?api-key={HELIUS_API_KEY}"
+            res = httpx.get(url).json()
+
+            for tx in res:
+                ts = dateutil.parser.isoparse(tx["timestamp"])
+                if not (start_time <= ts <= end_time):
                     continue
 
-                action = "receive" if tx.get("type") == "TRANSFER" else "buy" if "buy" in tx.get("description", "").lower() else "sell"
-                result.append({
-                    "rank": i,
-                    "address": holder,
+                action = "transfer"
+                amount = 0
+                for change in tx.get("tokenTransfers", []):
+                    if change.get("mint") == TOKEN_ADDRESS:
+                        amount = int(change["tokenAmount"]["tokenAmount"])
+                        if change["toUserAccount"] == address:
+                            action = "buy"
+                        elif change["fromUserAccount"] == address:
+                            action = "sell"
+                        break
+
+                results.append({
+                    "rank": idx,
+                    "address": address,
                     "action": action,
-                    "amount": round(tx.get("nativeTransfers", [{}])[0].get("amount", 0) / 1e9, 4),
-                    "timestamp": timestamp.strftime('%Y-%m-%d %H:%M')
+                    "amount": amount,
+                    "timestamp": ts.strftime("%Y-%m-%d %H:%M")
                 })
-                break
         except Exception as e:
-            logging.warning(f"[Fetch Error] Holder {i} – {e}")
-    return result
+            logging.warning(f"[Fetch Error] Holder {idx} – {e}")
+            continue
+
+    return results
 
 
 
