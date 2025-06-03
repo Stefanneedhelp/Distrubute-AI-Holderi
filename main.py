@@ -4,11 +4,15 @@ from datetime import datetime, timedelta
 from dotenv import load_dotenv
 import pytz
 import os
-import logging
+import asyncio
 
-from utils import fetch_holder_transactions, get_token_price, fetch_global_volume, send_telegram_message
+from utils import (
+    fetch_holder_transactions,
+    get_token_price,
+    fetch_global_volume,
+    send_telegram_message,
+)
 
-logging.basicConfig(level=logging.INFO)
 load_dotenv()
 
 TOKEN = os.getenv("BOT_TOKEN")
@@ -16,24 +20,24 @@ CHAT_ID = os.getenv("CHAT_ID")
 bot = Bot(token=TOKEN)
 scheduler = BlockingScheduler(timezone="Europe/Paris")
 
-def generate_report():
+async def generate_report():
     try:
         end_time = datetime.now(pytz.utc)
         start_time = end_time - timedelta(hours=1)
 
-        holder_data = fetch_holder_transactions(start_time, end_time)
-        token_price = get_token_price()
-        total_volume = fetch_global_volume(start_time, end_time)
+        holder_data = await fetch_holder_transactions(start_time, end_time)
+        token_price = await get_token_price()
+        total_volume = await fetch_global_volume(start_time, end_time)
 
         message_lines = [
             f"📈 *Izveštaj za poslednjih 1h*",
-            f"💰 Cena tokena: ${token_price:.6f}",
-            f"🔄 Ukupno kupljeno: ${total_volume['buy']:.2f}",
-            f"🔻 Ukupno prodato: ${total_volume['sell']:.2f}",
+            f"💰 Cena tokena: ${token_price:.6f}" if token_price else "💰 Cena tokena: Nepoznata",
+            f"🔄 Ukupno kupljeno: ${total_volume['buy']:.2f}" if total_volume else "🔄 Ukupno kupljeno: Nepoznato",
+            f"🔻 Ukupno prodato: ${total_volume['sell']:.2f}" if total_volume else "🔻 Ukupno prodato: Nepoznato",
         ]
 
         if holder_data:
-            message_lines.append(f"👥 Aktivnosti top holdera:\n")
+            message_lines.append("👥 Aktivnosti top holdera:\n")
             for holder in holder_data:
                 addr_link = f"[{holder['address']}](https://solscan.io/account/{holder['address']})"
                 action = "kupio" if holder["action"] == "buy" else "prodao" if holder["action"] == "sell" else "primio"
@@ -43,20 +47,19 @@ def generate_report():
         else:
             message_lines.append("⚠️ Nema aktivnosti holdera u poslednjih 1h.")
 
-        message = "\n".join(message_lines)
-        send_telegram_message(bot, CHAT_ID, message)
+        await send_telegram_message(bot, CHAT_ID, "\n".join(message_lines))
 
     except Exception as e:
-        logging.error(f"[Greška u izveštaju] {e}")
+        print(f"[Greška u izveštaju] {e}")
 
-# Zakazivanje na 1h
-scheduler.add_job(generate_report, 'interval', hours=1)
-
-# Prvi put odmah
-generate_report()
+@scheduler.scheduled_job("interval", hours=1)
+def scheduled_task():
+    asyncio.run(generate_report())
 
 if __name__ == "__main__":
+    asyncio.run(generate_report())  # Run once on startup
     scheduler.start()
+
 
 
 
