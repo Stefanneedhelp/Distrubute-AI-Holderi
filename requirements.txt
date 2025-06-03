@@ -1,7 +1,6 @@
-requests
-python-dotenv
-apscheduler
-pytz
 python-telegram-bot==20.7
+apscheduler
 httpx
+python-dotenv
+pytz
 python-dateutil
