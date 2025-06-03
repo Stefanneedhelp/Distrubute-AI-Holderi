@@ -1,114 +1,112 @@
-import httpx
 import os
+import httpx
+import pytz
 from datetime import datetime
 import logging
 
-DEXSCANNER_TOKEN = os.getenv("DEXSCANNER_TOKEN")
-HELIUS_API_KEY = os.getenv("HELIUS_API_KEY")
-
-HOLDERS = [
-    {"rank": 1, "address": "7bQ6uYkwKCEfVZ6MifMZzQWd3hp19uUjnZb9HfaQRpVQ"},
-    {"rank": 2, "address": "JD25qVdtd65FoiXNmR89JjmoJdYk9sjYQeSTZAALFiMy"},
-    {"rank": 3, "address": "8LVpipb9bq9qPfZTsay7ZwneW7nr6bGvdJyqwTA6G6d2"},
-    {"rank": 4, "address": "2AEU9yWk3dEGnVwRaKv4div5TarC4dn7axFLyz6zG4Pf"}
-]
+logging.basicConfig(level=logging.INFO)
 
 TOKEN_MINT = "2AEU9yWk3dEGnVwRaKv4div5TarC4dn7axFLyz6zG4Pf"
+DEX_PAIR_ID = "AyCkqVLkmMnqYCrCh2fFB1xEj29nymzc5t6PvyRHaCKn"
+HELIUS_API_KEY = os.getenv("HELIUS_API_KEY")
 
-async def fetch_holder_transactions(start_time, end_time):
-    base_url = f"https://api.helius.xyz/v0/addresses"
+HOLDER_LIST = [
+    "7bQ6uYkwKCEfVZ6MifMZzQWd3hp19uUjnZb9HfaQRpVQ",
+    "JD25qVdtd65FoiXNmR89JjmoJdYk9sjYQeSTZAALFiMy",
+    "8LVpipb9bq9qPfZTsay7ZwneW7nr6bGvdJyqwTA6G6d2",
+    "2AEU9yWk3dEGnVwRaKv4div5TarC4dn7axFLyz6zG4Pf"
+]
+
+async def send_telegram_message(bot, chat_id, text):
+    await bot.send_message(chat_id=chat_id, text=text, parse_mode="Markdown")
+
+def parse_timestamp(ts):
+    return datetime.fromisoformat(ts.replace("Z", "+00:00"))
+
+def fetch_holder_transactions(start_time, end_time):
     headers = {"accept": "application/json"}
     results = []
 
-    for holder in HOLDERS:
-        url = f"{base_url}/{holder['address']}/transactions?api-key={HELIUS_API_KEY}"
+    for idx, address in enumerate(HOLDER_LIST):
         try:
-            async with httpx.AsyncClient() as client:
-                response = await client.get(url, headers=headers)
-                response.raise_for_status()
-                data = response.json()
+            url = f"https://api.helius.xyz/v0/addresses/{address}/transactions?api-key={HELIUS_API_KEY}"
+            r = httpx.get(url, headers=headers)
+            r.raise_for_status()
+            data = r.json()
 
-                for tx in data:
-                    ts = tx.get("timestamp")
-                    if not ts:
-                        continue
-                    timestamp = datetime.utcfromtimestamp(ts)
-                    if not (start_time <= timestamp <= end_time):
+            for tx in data:
+                try:
+                    ts = parse_timestamp(tx["timestamp"])
+                    if not (start_time <= ts <= end_time):
                         continue
 
-                    for transfer in tx.get("tokenTransfers", []):
-                        if transfer["mint"] != TOKEN_MINT:
+                    for token in tx.get("tokenTransfers", []):
+                        if token.get("mint") != TOKEN_MINT:
                             continue
 
-                        amount = float(transfer.get("tokenAmount", {}).get("uiAmountString", 0))
-                        source = transfer.get("fromUserAccount")
-                        destination = transfer.get("toUserAccount")
+                        amount = float(token.get("amount", 0))
+                        sender = token.get("fromUserAccount")
+                        recipient = token.get("toUserAccount")
 
-                        action = "transfer"
-                        if source == holder["address"]:
+                        if sender == address:
                             action = "sell"
-                        elif destination == holder["address"]:
+                        elif recipient == address:
                             action = "buy"
+                        else:
+                            action = "receive"
 
                         results.append({
-                            "rank": holder["rank"],
-                            "address": holder["address"],
+                            "rank": idx + 1,
+                            "address": address,
                             "amount": amount,
-                            "timestamp": timestamp.strftime("%H:%M"),
-                            "action": action
+                            "action": action,
+                            "timestamp": ts.strftime("%Y-%m-%d %H:%M:%S")
                         })
+                except Exception as e:
+                    logging.warning(f"[Fetch Error] Holder {idx + 1} – {e}")
         except Exception as e:
-            logging.warning(f"[Fetch Error] Holder {holder['rank']} – {e}")
+            logging.warning(f"[Fetch Error] Holder {idx + 1} – {e}")
 
     return results
 
-async def get_token_price():
-    url = f"https://api.dexscreener.com/latest/dex/pairs/solana/{TOKEN_MINT}"
+def get_token_price():
     try:
-        async with httpx.AsyncClient() as client:
-            r = await client.get(url)
-            r.raise_for_status()
-            return float(r.json()["pair"]["priceUsd"])
+        url = f"https://api.dexscreener.com/latest/dex/pairs/solana/{DEX_PAIR_ID}"
+        r = httpx.get(url)
+        r.raise_for_status()
+        return float(r.json()["pair"]["priceUsd"])
     except Exception as e:
         logging.warning(f"[Price Error] {e}")
         return 0.0
 
-async def fetch_global_volume(start_time, end_time):
-    base_url = f"https://api.helius.xyz/v0/token/{TOKEN_MINT}/transfers?api-key={HELIUS_API_KEY}"
+def fetch_global_volume(start_time, end_time):
     try:
-        async with httpx.AsyncClient() as client:
-            r = await client.get(base_url)
-            r.raise_for_status()
-            data = r.json()
+        url = f"https://api.helius.xyz/v0/token/{TOKEN_MINT}/transfers?api-key={HELIUS_API_KEY}"
+        r = httpx.get(url)
+        r.raise_for_status()
+        data = r.json()
 
-            total_buy = 0
-            total_sell = 0
+        buy_total = 0.0
+        sell_total = 0.0
 
-            for tx in data:
-                ts = tx.get("timestamp")
-                if not ts:
-                    continue
-                timestamp = datetime.utcfromtimestamp(ts)
-                if not (start_time <= timestamp <= end_time):
-                    continue
-                amount = float(tx.get("tokenAmount", {}).get("uiAmountString", 0))
-                if tx.get("type") == "TRANSFER" and tx.get("source") == "UNKNOWN":
-                    continue
+        for tx in data:
+            ts = parse_timestamp(tx["timestamp"])
+            if not (start_time <= ts <= end_time):
+                continue
 
-                if tx.get("fromUserAccount") in [h["address"] for h in HOLDERS]:
-                    total_sell += amount * await get_token_price()
-                elif tx.get("toUserAccount") in [h["address"] for h in HOLDERS]:
-                    total_buy += amount * await get_token_price()
+            amount = float(tx.get("amount", 0))
+            buyer = tx.get("toUserAccount")
+            seller = tx.get("fromUserAccount")
 
-            return {"buy": total_buy, "sell": total_sell}
+            if buyer and buyer not in HOLDER_LIST:
+                buy_total += amount
+            if seller and seller not in HOLDER_LIST:
+                sell_total += amount
+
+        return {"buy": buy_total, "sell": sell_total}
     except Exception as e:
         logging.warning(f"[Volume Error] {e}")
-        return {"buy": 0, "sell": 0}
+        return {"buy": 0.0, "sell": 0.0}
 
-async def send_telegram_message(bot, chat_id, text):
-    try:
-        await bot.send_message(chat_id=chat_id, text=text, parse_mode="Markdown")
-    except Exception as e:
-        logging.warning(f"[Telegram Error] {e}")
 
 
