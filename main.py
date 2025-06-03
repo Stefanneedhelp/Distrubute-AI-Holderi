@@ -16,7 +16,7 @@ TOKEN = os.getenv("BOT_TOKEN")
 CHAT_ID = os.getenv("CHAT_ID")
 bot = Bot(token=TOKEN)
 
-# Scheduler za slanje izveštaja
+# Scheduler
 scheduler = AsyncIOScheduler(timezone="Europe/Paris")
 
 async def generate_report():
@@ -50,12 +50,15 @@ async def generate_report():
     except Exception as e:
         logging.error(f"[Greška u izveštaju] {e}")
 
-# Dodaj job na svakih 1 sat
-scheduler.add_job(generate_report, 'interval', hours=1)
+async def main():
+    scheduler.add_job(generate_report, 'interval', hours=1)
+    scheduler.start()
+    await generate_report()  # odmah za test
+    while True:
+        await asyncio.sleep(60)  # pokreće event loop
 
 if __name__ == "__main__":
-    scheduler.start()
-    asyncio.get_event_loop().run_forever()
+    asyncio.run(main())
 
 
 
