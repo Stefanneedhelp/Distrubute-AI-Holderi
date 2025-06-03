@@ -5,77 +5,91 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-API_KEY = os.getenv("HELIUS_API_KEY")
-TOKEN_MINT = os.getenv("MONITORED_TOKEN")
+HELIUS_API_KEY = os.getenv("HELIUS_API_KEY")
+BASE_URL = f"https://api.helius.xyz/v0"
 
-HEADERS = {
-    "accept": "application/json",
-    "Content-Type": "application/json",
-    "Authorization": f"Bearer {API_KEY}"
-}
-
-# Direktno unete adrese holdera
+# Direktno ubačeni holderi
 HOLDER_LIST = [
     "7bQ6uYkwKCEfVZ6MifMZzQWd3hp19uUjnZb9HfaQRpVQ",
-    "GtiwjVEQwbaXVkDn7EGteqHwT1KNVxD5XhKMzfgaEKuw",
-    "JD25qVdtd65FoiXNmR89JjmoJdYk9sjYQeSTZAALFiMy",
-    # Dodaj ostale adrese po potrebi
+    "FLiPgGTXtBtEJoytikaywvWgbz5a56DdHKZU72HSYMFF",
+    # Dodaj ostale adrese ovde
 ]
+
+TOKEN_MINT = "tvoj_token_mint"
 
 
 def fetch_holder_transactions(start_time, end_time):
-    holder_activity = []
-
-    for rank, address in enumerate(HOLDER_LIST, start=1):
-        url = f"https://api.helius.xyz/v0/addresses/{address}/transactions?api-key={API_KEY}"
-
+    results = []
+    for idx, holder in enumerate(HOLDER_LIST):
         try:
-            response = requests.get(url, headers=HEADERS)
-            data = response.json()
+            url = f"{BASE_URL}/addresses/{holder}/transactions?api-key={HELIUS_API_KEY}&limit=50"
+            res = requests.get(url)
+            data = res.json()
 
             for tx in data:
-                timestamp = datetime.utcfromtimestamp(tx["timestamp"])
-                if not (start_time <= timestamp <= end_time):
+                timestamp = tx.get("timestamp")
+                if timestamp is None:
+                    continue
+                dt_object = datetime.utcfromtimestamp(timestamp)
+                if not (start_time <= dt_object <= end_time):
                     continue
 
                 for transfer in tx.get("tokenTransfers", []):
-                    if transfer["mint"] != TOKEN_MINT:
-                        continue
-
-                    action = "buy" if transfer["toUserAccount"] == address else "sell" if transfer["fromUserAccount"] == address else "receive"
-
-                    holder_activity.append({
-                        "rank": rank,
-                        "address": address,
-                        "timestamp": timestamp.strftime("%Y-%m-%d %H:%M:%S"),
-                        "amount": float(transfer["tokenAmount"]["uiAmount"]),
-                        "action": action
-                    })
+                    if transfer.get("mint") == TOKEN_MINT:
+                        action = "buy" if transfer.get("toUserAccount") == holder else "sell" if transfer.get("fromUserAccount") == holder else "receive"
+                        results.append({
+                            "rank": idx + 1,
+                            "address": holder,
+                            "amount": float(transfer.get("tokenAmount", {}).get("uiAmount", 0)),
+                            "action": action,
+                            "timestamp": dt_object.strftime("%H:%M")
+                        })
         except Exception as e:
             print(f"[Fetch Error] {e}")
-
-    return holder_activity
+    return results
 
 
 def get_token_price():
     try:
-        res = requests.get(f"https://public-api.birdeye.so/public/price?address={TOKEN_MINT}", headers=HEADERS)
-        return float(res.json()["data"]["value"])
-    except:
-        return 0.0
+        url = f"https://public-api.birdeye.so/public/price?address={TOKEN_MINT}"
+        res = requests.get(url)
+        data = res.json()
+        return float(data.get("data", {}).get("value", 0))
+    except Exception as e:
+        print(f"[Price Error] {e}")
+        return 0
 
 
 def fetch_global_volume(start_time, end_time):
-    url = f"https://api.dexscreener.com/latest/dex/pairs/solana/{TOKEN_MINT}"
-
+    total_buy = 0
+    total_sell = 0
     try:
+        url = f"https://api.helius.xyz/v0/tokens/{TOKEN_MINT}/transactions?api-key={HELIUS_API_KEY}&limit=100"
         res = requests.get(url)
-        data = res.json()["pair"]
-        buys = float(data.get("volume", {}).get("h1BuyUsd", 0))
-        sells = float(data.get("volume", {}).get("h1SellUsd", 0))
-        return {"buy": buys, "sell": sells}
-    except:
-        return {"buy": 0, "sell": 0}
+        data = res.json()
+
+        for tx in data:
+            timestamp = tx.get("timestamp")
+            if timestamp is None:
+                continue
+            dt_object = datetime.utcfromtimestamp(timestamp)
+            if not (start_time <= dt_object <= end_time):
+                continue
+
+            for transfer in tx.get("tokenTransfers", []):
+                amount = float(transfer.get("tokenAmount", {}).get("uiAmount", 0))
+                if amount == 0:
+                    continue
+
+                sender = transfer.get("fromUserAccount")
+                receiver = transfer.get("toUserAccount")
+                if sender in HOLDER_LIST:
+                    total_sell += amount * get_token_price()
+                elif receiver in HOLDER_LIST:
+                    total_buy += amount * get_token_price()
+    except Exception as e:
+        print(f"[Volume Error] {e}")
+    return {"buy": total_buy, "sell": total_sell}
 
 
 def send_telegram_message(bot, chat_id, message):
