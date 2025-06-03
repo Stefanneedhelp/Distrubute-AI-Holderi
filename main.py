@@ -50,8 +50,9 @@ def generate_report():
         logger.error(f"[Greška u izveštaju] {e}")
 
 if __name__ == "__main__":
+    generate_report()
     scheduler.start()
-generate_report()
+
 
 
 
