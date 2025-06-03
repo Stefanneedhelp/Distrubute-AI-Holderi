@@ -1,68 +1,89 @@
 
-from telegram import Bot
-from apscheduler.schedulers.blocking import BlockingScheduler
-from datetime import datetime, timedelta
-from dotenv import load_dotenv
-import pytz
 import os
-import logging
-
-from utils import fetch_holder_transactions, get_token_price, fetch_global_volume, send_telegram_message
+import requests
+from datetime import datetime
+from dotenv import load_dotenv
 
 load_dotenv()
 
-# Konfiguracija
-TOKEN = os.getenv("BOT_TOKEN")
-CHAT_ID = os.getenv("CHAT_ID")
-MONITORED_MINT = os.getenv("MONITORED_MINT")
-HELIUS_API_KEY = os.getenv("HELIUS_API_KEY")
+API_KEY = os.getenv("HELIUS_API_KEY")
+TOKEN_MINT = os.getenv("MONITORED_TOKEN")
 
-bot = Bot(token=TOKEN)
-scheduler = BlockingScheduler(timezone="Europe/Paris")
+HEADERS = {
+    "accept": "application/json",
+    "Content-Type": "application/json",
+    "Authorization": f"Bearer {API_KEY}"
+}
 
-# Funkcija za izveštaj
-@scheduler.scheduled_job("cron", hour=6, minute=0)
-def generate_report():
+# Direktno unete adrese holdera
+HOLDER_LIST = [
+    "7bQ6uYkwKCEfVZ6MifMZzQWd3hp19uUjnZb9HfaQRpVQ",
+    "GtiwjVEQwbaXVkDn7EGteqHwT1KNVxD5XhKMzfgaEKuw",
+    "JD25qVdtd65FoiXNmR89JjmoJdYk9sjYQeSTZAALFiMy",
+    # Dodaj ostale adrese po potrebi
+]
+
+
+def fetch_holder_transactions(start_time, end_time):
+    holder_activity = []
+
+    for rank, address in enumerate(HOLDER_LIST, start=1):
+        url = f"https://api.helius.xyz/v0/addresses/{address}/transactions?api-key={API_KEY}"
+
+        try:
+            response = requests.get(url, headers=HEADERS)
+            data = response.json()
+
+            for tx in data:
+                timestamp = datetime.utcfromtimestamp(tx["timestamp"])
+                if not (start_time <= timestamp <= end_time):
+                    continue
+
+                for transfer in tx.get("tokenTransfers", []):
+                    if transfer["mint"] != TOKEN_MINT:
+                        continue
+
+                    action = "buy" if transfer["toUserAccount"] == address else "sell" if transfer["fromUserAccount"] == address else "receive"
+
+                    holder_activity.append({
+                        "rank": rank,
+                        "address": address,
+                        "timestamp": timestamp.strftime("%Y-%m-%d %H:%M:%S"),
+                        "amount": float(transfer["tokenAmount"]["uiAmount"]),
+                        "action": action
+                    })
+        except Exception as e:
+            print(f"[Fetch Error] {e}")
+
+    return holder_activity
+
+
+def get_token_price():
     try:
-        end_time = datetime.now(pytz.utc)
-        start_time = end_time - timedelta(hours=1)
+        res = requests.get(f"https://public-api.birdeye.so/public/price?address={TOKEN_MINT}", headers=HEADERS)
+        return float(res.json()["data"]["value"])
+    except:
+        return 0.0
 
-        holders_data, most_active_holder, buy_total, sell_total = fetch_holder_transactions(
-            HELIUS_API_KEY, MONITORED_MINT, start_time, end_time
-        )
 
-        token_price = get_token_price()
-        ratio = round(buy_total / sell_total, 2) if sell_total > 0 else "∞"
+def fetch_global_volume(start_time, end_time):
+    url = f"https://api.dexscreener.com/latest/dex/pairs/solana/{TOKEN_MINT}"
 
-        message_lines = [
-            f"📊 <b>Dnevni izveštaj</b> ({end_time.strftime('%Y-%m-%d %H:%M')})",
-            f"<b>Cena:</b> ${token_price:.6f}",
-            f"<b>Ukupno kupljeno:</b> ${buy_total:,.2f}",
-            f"<b>Ukupno prodato:</b> ${sell_total:,.2f}",
-            f"<b>Odnos kupovina/prodaja:</b> {ratio}"
-        ]
+    try:
+        res = requests.get(url)
+        data = res.json()["pair"]
+        buys = float(data.get("volume", {}).get("h1BuyUsd", 0))
+        sells = float(data.get("volume", {}).get("h1SellUsd", 0))
+        return {"buy": buys, "sell": sells}
+    except:
+        return {"buy": 0, "sell": 0}
 
-        if holders_data:
-            message_lines.append("\n<b>📢 Aktivnosti top holdera:</b>")
-            for h in holders_data:
-                action_text = "kupio" if h["type"] == "BUY" else "prodao" if h["type"] == "SELL" else "primio"
-                message_lines.append(
-                    f"👤 Holder #{h['rank']} <a href='https://solscan.io/account/{h['address']}'>...{h['address'][-4:]}</a> je {action_text} {h['amount']:.2f} tokena u {h['timestamp']}"
-                )
-        else:
-            message_lines.append("\n📬 <b>Nema aktivnosti holdera</b>")
 
-        if most_active_holder:
-            message_lines.append(f"\n🔍 Najaktivniji holder: <a href='https://solscan.io/account/{most_active_holder[0]}'>...{most_active_holder[0][-4:]}</a> sa {most_active_holder[1]} transakcija")
-
-        send_telegram_message(bot, CHAT_ID, "\n".join(message_lines))
-
+def send_telegram_message(bot, chat_id, message):
+    try:
+        bot.send_message(chat_id=chat_id, text=message, parse_mode="Markdown", disable_web_page_preview=True)
     except Exception as e:
-        logging.error(f"[Greška u izveštaju] {e}")
-
-if __name__ == "__main__":
-    scheduler.start()
-
+        print(f"[Telegram Error] {e}")
 
 
 
