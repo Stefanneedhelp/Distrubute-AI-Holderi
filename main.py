@@ -8,7 +8,7 @@ import asyncio
 
 from fetch_holder_transactions import fetch_holder_transactions
 from utils import get_token_price, fetch_global_volume, send_telegram_message
-from holders import TOP_HOLDERS
+from holders import HOLDERS
 
 load_dotenv()
 
