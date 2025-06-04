@@ -8,7 +8,7 @@ import asyncio
 
 from fetch_holder_transactions import fetch_holder_transactions
 from utils import get_token_price, fetch_global_volume, send_telegram_message
-from holders import HOLDERS
+from holders import TOP_HOLDERS
 
 load_dotenv()
 
@@ -30,7 +30,7 @@ async def generate_report():
 
         holder_data = []
 
-        for rank, address in enumerate(HOLDERS, start=1):
+        for rank, address in enumerate(TOP_HOLDERS, start=1):
             txs = await fetch_holder_transactions(address)
             for tx in txs:
                 holder_data.append({
