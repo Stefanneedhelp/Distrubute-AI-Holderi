@@ -1,98 +1,57 @@
-import os
 import httpx
-import logging
-from datetime import datetime
-from holders import HOLDERS
-from telegram import Bot
-from dateutil import parser as date_parser
+import os
 
-API_KEY = os.getenv("HELIUS_API_KEY")
-TOKEN_ADDRESS = "2AEU9yWk3dEGnVwRaKv4div5TarC4dn7axFLyz6zG4Pf"
-DEX_PAIR_ID = "AyCkqVLkmMnqYCrCh2fFB1xEj29nymzc5t6PvyRHaCKn"
+DEX_API_URL = "https://api.dexscreener.com/latest/dex/pairs/solana/AyCkqVLkmMnqYCrCh2fFB1xEj29nymzc5t6PvyRHaCKn"
 
-logging.basicConfig(level=logging.INFO)
+async def fetch_global_volume():
+    try:
+        async with httpx.AsyncClient() as client:
+            resp = await client.get(DEX_API_URL)
+            data = resp.json()
 
-async def fetch_holder_transactions(start_time, end_time):
-    transactions = []
-    headers = {"accept": "application/json"}
+            pair = data.get("pair")
+            if not pair:
+                return None
 
-    async with httpx.AsyncClient() as client:
-        for rank, address in enumerate(HOLDERS, 1):
-            try:
-                url = f"https://api.helius.xyz/v0/addresses/{address}/transactions?api-key={API_KEY}"
-                res = await client.get(url, headers=headers)
-                data = res.json()
+            volume_usd = float(pair.get("volumeUsd", 0))
 
-                for tx in data:
-                    timestamp = tx.get("timestamp")
-                    if isinstance(timestamp, int):
-                        tx_time = datetime.utcfromtimestamp(timestamp)
-                    else:
-                        tx_time = date_parser.parse(str(timestamp))
+            txns = pair.get("txns", {}).get("m5", {})
+            buys = float(txns.get("buys", 0))
+            sells = float(txns.get("sells", 0))
+            total = buys + sells
 
-                    if not (start_time <= tx_time <= end_time):
-                        continue
+            if total == 0:
+                return {"buy": volume_usd / 2, "sell": volume_usd / 2}
 
-                    for token_event in tx.get("tokenTransfers", []):
-                        if token_event.get("mint") == TOKEN_ADDRESS:
-                            action = (
-                                "buy" if token_event["toUserAccount"] == address else
-                                "sell" if token_event["fromUserAccount"] == address else
-                                "receive"
-                            )
-                            transactions.append({
-                                "rank": rank,
-                                "address": address,
-                                "amount": float(token_event.get("tokenAmount", {}).get("uiAmount", 0)),
-                                "timestamp": tx_time.strftime("%H:%M:%S"),
-                                "action": action,
-                            })
+            buy_ratio = buys / total
+            buy_volume = volume_usd * buy_ratio
+            sell_volume = volume_usd * (1 - buy_ratio)
 
-            except Exception as e:
-                logging.warning(f"[Fetch Error] Holder {rank} – {e}")
-    return transactions
+            return {
+                "buy": buy_volume,
+                "sell": sell_volume
+            }
+
+    except Exception as e:
+        print(f"[GreÅ¡ka u fetch_global_volume]: {e}")
+        return None
 
 async def get_token_price():
     try:
         async with httpx.AsyncClient() as client:
-            url = f"https://api.dexscreener.com/latest/dex/pairs/solana/{DEX_PAIR_ID}"
-            res = await client.get(url)
-            data = res.json()
-            return float(data["pair"]["priceUsd"])
+            url = DEX_API_URL
+            response = await client.get(url)
+            data = response.json()
+            return float(data.get("pair", {}).get("priceUsd", 0))
     except Exception as e:
-        logging.warning(f"[Price Error] {e}")
+        print(f"âŒ GreÅ¡ka u dohvatanju cene: {e}")
         return None
 
-async def fetch_global_volume(start_time, end_time):
+async def send_telegram_message(bot, chat_id, message):
     try:
-        url = f"https://api.helius.xyz/v0/token/{TOKEN_ADDRESS}/transfers?api-key={API_KEY}"
-        async with httpx.AsyncClient() as client:
-            res = await client.get(url)
-            data = res.json()
-
-        volume = {"buy": 0, "sell": 0}
-        for tx in data:
-            timestamp = tx.get("timestamp")
-            if isinstance(timestamp, int):
-                tx_time = datetime.utcfromtimestamp(timestamp)
-            else:
-                tx_time = date_parser.parse(str(timestamp))
-
-            if not (start_time <= tx_time <= end_time):
-                continue
-
-            direction = "buy" if tx["toUserAccount"] in HOLDERS else "sell" if tx["fromUserAccount"] in HOLDERS else None
-            amount = float(tx.get("tokenAmount", {}).get("uiAmount", 0))
-            if direction in volume:
-                volume[direction] += amount * (await get_token_price() or 0)
-
-        return volume
+        await bot.send_message(chat_id=chat_id, text=message, parse_mode="Markdown")
     except Exception as e:
-        logging.warning(f"[Volume Error] {e}")
-        return None
-
-async def send_telegram_message(bot: Bot, chat_id: str, text: str):
-    await bot.send_message(chat_id=chat_id, text=text, parse_mode="Markdown")
+        print(f"âŒ GreÅ¡ka u slanju poruke: {e}")
 
 
 
