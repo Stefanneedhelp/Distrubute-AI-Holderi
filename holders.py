@@ -1,4 +1,4 @@
-HOLDERS = [
+TOP_HOLDERS [
     "7MTiWyDsjNYDWXmZ3J331bz6zwJrJ416ipR8oif42q5D",
     "E5WchutHdCY8besK1gFg8Bc5AzXssZeDPKrNGWWemiiP",
     "8ExkZcutpGMYLLJbQYCWTShHkLvjgTrk7GKgNAnk3Jag",
