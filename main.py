@@ -30,7 +30,7 @@ async def generate_report():
 
         holder_data = []
 
-        for rank, address in enumerate(TOP_HOLDERS, start=1):
+        for rank, address in enumerate(HOLDERS, start=1):
             txs = await fetch_holder_transactions(address)
             for tx in txs:
                 holder_data.append({
