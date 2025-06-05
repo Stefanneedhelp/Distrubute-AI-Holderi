@@ -22,10 +22,10 @@ async def generate_report():
         token_price = await get_token_price()
         total_volume = await fetch_global_volume()
         message_lines = [
-            f"ðŸ“ˆ *IzveÅ¡taj za poslednjih 1h*",
-            f"ðŸ’° Cena tokena: ${token_price:.6f}" if token_price else "ðŸ’° Cena tokena: Nepoznata",
-            f"ðŸ”„ Ukupno kupljeno: ${total_volume['buy']:.2f}" if total_volume else "ðŸ”„ Ukupno kupljeno: Nepoznato",
-            f"ðŸ”» Ukupno prodato: ${total_volume['sell']:.2f}" if total_volume else "ðŸ”» Ukupno prodato: Nepoznato",
+            f"📈 <b>Izveštaj za poslednjih 1h</b>",
+            f"💰 Cena tokena: ${token_price:.6f}" if token_price else "💰 Cena tokena: Nepoznata",
+            f"🟢 Ukupno kupljeno: ${total_volume['buy']:.2f}" if total_volume else "🟢 Ukupno kupljeno: Nepoznato",
+            f"🔴 Ukupno prodato: ${total_volume['sell']:.2f}" if total_volume else "🔴 Ukupno prodato: Nepoznato",
         ]
 
         holder_data = []
@@ -43,27 +43,27 @@ async def generate_report():
             await asyncio.sleep(0.3)
 
         if holder_data:
-            message_lines.append("\nðŸ‘¥ Aktivnosti top holdera:\n")
+            message_lines.append("\n👥 <b>Aktivnosti top holdera:</b>\n")
             for h in holder_data:
-                addr_link = f"[{h['address']}](https://solscan.io/account/{h['address']})"
+                addr_link = f"<a href='https://solscan.io/account/{h['address']}'>{h['address']}</a>"
                 action = "kupio" if h["action"] == "buy" else "prodao"
                 message_lines.append(
-                    f"ðŸ”¹ Holder #{h['rank']} {addr_link} je {action} {h['amount']:.4f} tokena u {h['timestamp']}."
+                    f"🔹 Holder #{h['rank']} {addr_link} je {action} {h['amount']:.4f} tokena u {h['timestamp']}."
                 )
         else:
-            message_lines.append("âš ï¸ Nema aktivnosti holdera u poslednjih 1h.")
+            message_lines.append("⚠️ <i>Nema aktivnosti holdera u poslednjih 1h.</i>")
 
         await send_telegram_message(bot, CHAT_ID, "\n".join(message_lines))
 
     except Exception as e:
-        print(f"[GreÅ¡ka u izveÅ¡taju] {e}")
+        print(f"[Greška u izveštaju] {e}")
 
 @scheduler.scheduled_job("interval", hours=1)
 def scheduled_task():
     asyncio.run(generate_report())
 
 if __name__ == "__main__":
-    asyncio.run(generate_report())  # Run once on startup
+    asyncio.run(generate_report())
     scheduler.start()
 
 
