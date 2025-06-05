@@ -28,5 +28,5 @@ TOP_HOLDERS = [
     "HU7eT6YKRMJmUCFNjT2V5gGxBLqxszbNLiic7vFpMDWU",
     "DJVWifhSJoRWq8fPXRVJqbUjgAZphppSKsw9EedVuad6",
     "7MV6vtiFJPhHgBQc6Ch4hHCrYfXRr5xkbqEVUnomKXCK",
-    "7bQ6uYkwKCEfVZ6MifMZzQWd3hp19uUjnZb9HfaQRpVQ"
+    "7bQ6uYkwKCEfVZ6MifMZzQWd3hp19uUjnZb9HfaQRpVQ",
 ]
