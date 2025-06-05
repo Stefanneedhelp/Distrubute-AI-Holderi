@@ -33,7 +33,7 @@ async def fetch_global_volume():
             }
 
     except Exception as e:
-        print(f"[GreÅ¡ka u fetch_global_volume]: {e}")
+        print(f"[Greška u fetch_global_volume]: {e}")
         return None
 
 async def get_token_price():
@@ -44,14 +44,15 @@ async def get_token_price():
             data = response.json()
             return float(data.get("pair", {}).get("priceUsd", 0))
     except Exception as e:
-        print(f"âŒ GreÅ¡ka u dohvatanju cene: {e}")
+        print(f"❌ Greška u dohvatanju cene: {e}")
         return None
 
 async def send_telegram_message(bot, chat_id, message):
     try:
-        await bot.send_message(chat_id=chat_id, text=message, parse_mode="Markdown")
+        await bot.send_message(chat_id=chat_id, text=message, parse_mode="HTML")
     except Exception as e:
-        print(f"âŒ GreÅ¡ka u slanju poruke: {e}")
+        print(f"❌ Greška u slanju poruke: {e}")
+
 
 
 
