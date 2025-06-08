@@ -5,6 +5,7 @@ from dotenv import load_dotenv
 import pytz
 import os
 import asyncio
+import time
 
 from fetch_holder_transactions import fetch_holder_transactions
 from utils import get_token_price, fetch_global_volume, send_telegram_message
@@ -58,14 +59,18 @@ async def generate_report():
     except Exception as e:
         print(f"[Greška u izveštaju] {e}")
 
+# 🔁 Pokreće se na svakih 1h
 @scheduler.scheduled_job("interval", hours=1)
 def scheduled_task():
     asyncio.run(generate_report())
 
 if __name__ == "__main__":
-    asyncio.run(generate_report())
-    scheduler.start()
+    asyncio.run(generate_report())  # Pošalje odmah
+    scheduler.start()               # Pokrene raspored
 
+    # Render workaround – drži proces živim
+    while True:
+        time.sleep(60)
 
 
 
