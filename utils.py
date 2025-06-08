@@ -1,69 +1,56 @@
+from apscheduler.schedulers.blocking import BlockingScheduler
+from datetime import datetime
+from dotenv import load_dotenv
+from telegram import Bot
+import pytz
 import os
-import httpx
-import json
-from telegram.constants import ParseMode
+import asyncio
+import time
 
-# Dexscreener konfiguracija
-PAIR_ADDRESS = "AyCkqVLkmMnqYCrCh2fFB1xEj29nymzc5t6PvyRHaCKn"
-DEX_API = f"https://api.dexscreener.com/latest/dex/pairs/solana/{PAIR_ADDRESS}"
-STATE_FILE = "state.json"
+from utils import get_token_price, fetch_global_volume_delta, send_telegram_message
 
-# ✅ Dohvatanje cene tokena
-async def get_token_price():
+load_dotenv()
+
+TOKEN = os.getenv("BOT_TOKEN")
+CHAT_ID = os.getenv("CHAT_ID")
+scheduler = BlockingScheduler(timezone="Europe/Paris")
+
+async def generate_report():
     try:
-        async with httpx.AsyncClient() as client:
-            response = await client.get(DEX_API)
-            data = response.json()
-            return float(data["pair"]["priceUsd"])
-    except Exception as e:
-        print(f"[Greška u get_token_price] {e}")
-        return None
+        async with Bot(token=TOKEN) as bot:
+            token_price = await get_token_price()
+            total_volume = await fetch_global_volume_delta()
 
-# ✅ Detekcija volumena u poslednjih 15 minuta
-async def fetch_global_volume_delta():
-    try:
-        async with httpx.AsyncClient() as client:
-            response = await client.get(DEX_API)
-            data = response.json()
-            pair = data.get("pair", {})
+            print("[DEBUG] Cena:", token_price)
+            print("[DEBUG] Volumen:", total_volume)
 
-            # Koristimo volumeUsd jer txns buy/sell nisu pouzdani za sve tokene
-            current_volume = float(pair.get("volumeUsd", 0.0))
+            message_lines = [
+                "📈 <b>Izveštaj za poslednjih 15 minuta</b>",
+                f"💰 Cena tokena: ${token_price:.6f}" if token_price else "💰 Cena tokena: Nepoznata",
+            ]
 
-            # Učitaj prethodni volumen
-            if os.path.exists(STATE_FILE):
-                with open(STATE_FILE, "r") as f:
-                    state = json.load(f)
+            if total_volume and "buy" in total_volume and "sell" in total_volume:
+                message_lines.append(f"🟢 Ukupno kupljeno: ${total_volume['buy']:.2f}")
+                message_lines.append(f"🔴 Ukupno prodato: ${total_volume['sell']:.2f}")
             else:
-                state = {"prev_volume": 0}
+                message_lines.append("🟢 Ukupno kupljeno: Nepoznato")
+                message_lines.append("🔴 Ukupno prodato: Nepoznato")
 
-            delta_volume = max(current_volume - state["prev_volume"], 0)
-
-            # Sačuvaj trenutno stanje
-            with open(STATE_FILE, "w") as f:
-                json.dump({"prev_volume": current_volume}, f)
-
-            return {
-                "buy": delta_volume / 2,   # gruba podela
-                "sell": delta_volume / 2
-            }
+            await send_telegram_message(bot, CHAT_ID, "\n".join(message_lines))
 
     except Exception as e:
-        print(f"[Greška u fetch_global_volume_delta] {e}")
-        return None
+        print(f"[Greška u izveštaju] {e}")
 
-# ✅ Slanje poruke na Telegram
-async def send_telegram_message(bot, chat_id, message):
-    try:
-        await bot.send_message(
-            chat_id=chat_id,
-            text=message,
-            parse_mode=ParseMode.HTML,
-            disable_web_page_preview=True,
-        )
-        print("✅ Poruka poslata.")
-    except Exception as e:
-        print(f"❌ Greška u slanju poruke: {e}")
+# ⏱ Na svakih 15 minuta
+@scheduler.scheduled_job("interval", minutes=15)
+def scheduled_task():
+    asyncio.run(generate_report())
 
+if __name__ == "__main__":
+    asyncio.run(generate_report())  # Odmah po pokretanju
+    scheduler.start()
+
+    while True:
+        time.sleep(60)
 
 
