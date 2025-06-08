@@ -1,19 +1,21 @@
+
 from apscheduler.schedulers.blocking import BlockingScheduler
-from datetime import datetime
 from dotenv import load_dotenv
 from telegram import Bot
-import pytz
 import os
 import asyncio
 
 from utils import fetch_dexscreener_data
 
+# Učitaj .env promenljive
 load_dotenv()
-
 TOKEN = os.getenv("BOT_TOKEN")
 CHAT_ID = os.getenv("CHAT_ID")
+
+# Pokreni scheduler za Evropu/Pariz
 scheduler = BlockingScheduler(timezone="Europe/Paris")
 
+# Glavna funkcija za generisanje i slanje izveštaja
 async def generate_report():
     try:
         async with Bot(token=TOKEN) as bot:
@@ -30,13 +32,13 @@ async def generate_report():
     except Exception as e:
         print(f"[Bot error] {e}")
 
+# Svakih 15 minuta
 @scheduler.scheduled_job('interval', minutes=15)
 def scheduled_job():
     asyncio.run(generate_report())
 
 if __name__ == "__main__":
     scheduler.start()
-
 
 
 
