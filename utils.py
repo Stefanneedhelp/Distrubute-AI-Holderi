@@ -1,12 +1,10 @@
 import os
 import httpx
-import json
 from telegram.constants import ParseMode
 
 # Dexscreener konfiguracija
 PAIR_ADDRESS = "AyCkqVLkmMnqYCrCh2fFB1xEj29nymzc5t6PvyRHaCKn"
 DEX_API = f"https://api.dexscreener.com/latest/dex/pairs/solana/{PAIR_ADDRESS}"
-STATE_FILE = "state.json"
 
 # ✅ Dohvatanje cene tokena
 async def get_token_price():
@@ -30,16 +28,15 @@ async def fetch_global_volume_delta():
             current_volume = float(pair.get("volumeUsd", 0.0))
             print("[DEBUG] Trenutni volumeUsd:", current_volume)
 
-            if os.path.exists(STATE_FILE):
-                with open(STATE_FILE, "r") as f:
-                    state = json.load(f)
-            else:
-                state = {"prev_volume": 0}
+            prev_volume = float(os.environ.get("PREV_VOLUME", "0"))
+            delta_volume = max(current_volume - prev_volume, 0)
 
-            delta_volume = max(current_volume - state["prev_volume"], 0)
+            print(f"[INFO] PREV_VOLUME: {prev_volume} → NOVO: {current_volume}")
 
-            with open(STATE_FILE, "w") as f:
-                json.dump({"prev_volume": current_volume}, f)
+            # ⚠️ Info: ovo NE menja varijablu u Render Environment
+            # Samo lokalno zapisuje ako se koristi .env fajl (opciono)
+            with open(".env", "a") as f:
+                f.write(f"\nPREV_VOLUME={current_volume}")
 
             return {
                 "buy": delta_volume / 2,
