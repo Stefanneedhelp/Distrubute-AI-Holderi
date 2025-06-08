@@ -2,7 +2,6 @@ from apscheduler.schedulers.blocking import BlockingScheduler
 from datetime import datetime
 from dotenv import load_dotenv
 from telegram import Bot
-from telegram.request import AiohttpRequest
 import pytz
 import os
 import asyncio
@@ -20,7 +19,7 @@ scheduler = BlockingScheduler(timezone="Europe/Paris")
 
 async def generate_report():
     try:
-        async with Bot(token=TOKEN, request=AiohttpRequest()) as bot:
+        async with Bot(token=TOKEN) as bot:
             token_price = await get_token_price()
             total_volume = await fetch_global_volume()
             message_lines = [
