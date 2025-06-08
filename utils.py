@@ -3,11 +3,12 @@ import httpx
 import json
 from telegram.constants import ParseMode
 
+# Dexscreener konfiguracija
 PAIR_ADDRESS = "AyCkqVLkmMnqYCrCh2fFB1xEj29nymzc5t6PvyRHaCKn"
 DEX_API = f"https://api.dexscreener.com/latest/dex/pairs/solana/{PAIR_ADDRESS}"
 STATE_FILE = "state.json"
 
-# Cena tokena
+# ✅ Dohvatanje cene tokena
 async def get_token_price():
     try:
         async with httpx.AsyncClient() as client:
@@ -18,42 +19,40 @@ async def get_token_price():
         print(f"[Greška u get_token_price] {e}")
         return None
 
-# Globalni volumen tokena
+# ✅ Detekcija volumena u poslednjih 15 minuta
 async def fetch_global_volume_delta():
     try:
         async with httpx.AsyncClient() as client:
             response = await client.get(DEX_API)
             data = response.json()
-            txns = data.get("pair", {}).get("txns", {})
-            if not txns:
-                return None
+            pair = data.get("pair", {})
 
-            current_buy = float(txns.get("m5", {}).get("buyVolume", 0.0))
-            current_sell = float(txns.get("m5", {}).get("sellVolume", 0.0))
+            # Koristimo volumeUsd jer txns buy/sell nisu pouzdani za sve tokene
+            current_volume = float(pair.get("volumeUsd", 0.0))
 
-            # Učitaj prethodno stanje
+            # Učitaj prethodni volumen
             if os.path.exists(STATE_FILE):
                 with open(STATE_FILE, "r") as f:
                     state = json.load(f)
             else:
-                state = {"prev_buy": 0, "prev_sell": 0}
+                state = {"prev_volume": 0}
 
-            delta = {
-                "buy": max(current_buy - state["prev_buy"], 0),
-                "sell": max(current_sell - state["prev_sell"], 0),
-            }
+            delta_volume = max(current_volume - state["prev_volume"], 0)
 
             # Sačuvaj trenutno stanje
             with open(STATE_FILE, "w") as f:
-                json.dump({"prev_buy": current_buy, "prev_sell": current_sell}, f)
+                json.dump({"prev_volume": current_volume}, f)
 
-            return delta
+            return {
+                "buy": delta_volume / 2,   # gruba podela
+                "sell": delta_volume / 2
+            }
 
     except Exception as e:
         print(f"[Greška u fetch_global_volume_delta] {e}")
         return None
 
-# Slanje poruke
+# ✅ Slanje poruke na Telegram
 async def send_telegram_message(bot, chat_id, message):
     try:
         await bot.send_message(
@@ -65,7 +64,6 @@ async def send_telegram_message(bot, chat_id, message):
         print("✅ Poruka poslata.")
     except Exception as e:
         print(f"❌ Greška u slanju poruke: {e}")
-
 
 
 
