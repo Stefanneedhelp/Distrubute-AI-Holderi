@@ -5,9 +5,8 @@ from telegram import Bot
 import pytz
 import os
 import asyncio
-import time
 
-from utils import get_token_price, fetch_global_volume_delta, send_telegram_message
+from utils import fetch_dexscreener_data
 
 load_dotenv()
 
@@ -18,32 +17,25 @@ scheduler = BlockingScheduler(timezone="Europe/Paris")
 async def generate_report():
     try:
         async with Bot(token=TOKEN) as bot:
-            token_price = await get_token_price()
-            total_volume = await fetch_global_volume_delta()
+            price, buy_volume, sell_volume = await fetch_dexscreener_data()
 
             message_lines = [
                 f"📈 <b>Izveštaj za poslednjih 15 minuta</b>",
-                f"💰 Cena tokena: ${token_price:.6f}" if token_price else "💰 Cena tokena: Nepoznata",
-                f"🟢 Ukupno kupljeno: ${total_volume['buy']:.2f}" if total_volume else "🟢 Ukupno kupljeno: Nepoznato",
-                f"🔴 Ukupno prodato: ${total_volume['sell']:.2f}" if total_volume else "🔴 Ukupno prodato: Nepoznato",
+                f"💰 Cena tokena: ${price:.6f}",
+                f"🟢 Ukupno kupljeno: ${buy_volume:,.2f}",
+                f"🔴 Ukupno prodato: ${sell_volume:,.2f}"
             ]
 
-            await send_telegram_message(bot, CHAT_ID, "\n".join(message_lines))
-
+            await bot.send_message(chat_id=CHAT_ID, text="\n".join(message_lines), parse_mode="HTML")
     except Exception as e:
-        print(f"[Greška u izveštaju] {e}")
+        print(f"[Bot error] {e}")
 
-# ⏱ Na svakih 15 minuta
-@scheduler.scheduled_job("interval", minutes=15)
-def scheduled_task():
+@scheduler.scheduled_job('interval', minutes=15)
+def scheduled_job():
     asyncio.run(generate_report())
 
 if __name__ == "__main__":
-    asyncio.run(generate_report())  # Odmah po pokretanju
     scheduler.start()
-
-    while True:
-        time.sleep(60)
 
 
 
