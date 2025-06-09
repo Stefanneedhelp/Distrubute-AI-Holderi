@@ -6,6 +6,7 @@ import os
 import asyncio
 
 from utils import fetch_dexscreener_data, get_dexscreener_link
+from holders_activity import get_holder_balances_and_activity
 
 load_dotenv()
 TOKEN = os.getenv("BOT_TOKEN")
@@ -15,22 +16,40 @@ scheduler = BlockingScheduler(timezone="Europe/Paris")
 async def generate_report():
     try:
         async with Bot(token=TOKEN) as bot:
+            # 1. Cena i volumeni sa Dexscreener-a
             price, buy_24h, sell_24h = await fetch_dexscreener_data()
             dexscreener_link = get_dexscreener_link()
 
+            # 2. Aktivnost i balansi holdera
+            holders_data, most_active = await get_holder_balances_and_activity()
+
+            # 3. Formatiraj deo za holdere
+            if all(h["tx_count_24h"] == 0 for h in holders_data):
+                holder_lines = ["📭 <b>Nema aktivnosti holdera u poslednjih 24h</b>"]
+            else:
+                holder_lines = [
+                    f"🏃‍♂️ <b>Najaktivniji holder:</b> {most_active['address']} ({most_active['tx_count']} tx)"
+                ]
+                for h in holders_data:
+                    if isinstance(h["tx_count_24h"], int) and h["tx_count_24h"] > 0:
+                        holder_lines.append(
+                            f"• {h['address'][:5]}...{h['address'][-5:]} | 💼 {h['dis_balance']:.2f} DIS | 🔁 {h['tx_count_24h']} tx"
+                        )
+
+            # 4. Finalna poruka
             message_lines = [
                 f"📈 <b>Izveštaj za DIS token (24h)</b>",
                 f"💰 Cena: ${price:.6f}",
+                f"🟢 <b>Kupovine:</b> ${buy_24h:,.2f}",
+                f"🔴 <b>Prodaje:</b> ${sell_24h:,.2f}",
                 "",
-                f"🟢 <b>Kupovine (24h)</b>: ${buy_24h:,.2f}",
-                f"🔴 <b>Prodaje (24h)</b>: ${sell_24h:,.2f}",
+                *holder_lines,
                 "",
-                f"🏃‍♂️ <b>Najaktivnija adresa:</b> (uskoro)",
-                "",
-                f"📊 <a href=\"{dexscreener_link}\">Dexscreener DIS/SOL</a>"
+                f"🔗 <a href=\"{dexscreener_link}\">Dexscreener DIS/SOL</a>"
             ]
 
             await bot.send_message(chat_id=CHAT_ID, text="\n".join(message_lines), parse_mode="HTML")
+
     except Exception as e:
         print(f"[Bot error] {e}")
 
@@ -40,6 +59,4 @@ def scheduled_job():
 
 if __name__ == "__main__":
     scheduler.start()
-
-
 
