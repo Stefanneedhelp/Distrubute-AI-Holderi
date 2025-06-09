@@ -1,47 +1,95 @@
+import os
 import asyncio
-from datetime import datetime
+from dotenv import load_dotenv
+from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from telegram import Bot
+from datetime import datetime, timezone
+import pytz
+
 from utils import (
     get_token_price,
     fetch_global_volume_delta,
     send_telegram_message,
+    get_dis_balance
 )
-from holders_activity import get_holder_balances_and_activity
-import os
 
-bot = Bot(token=os.getenv("BOT_TOKEN"))
-chat_id = os.getenv("CHAT_ID")
+load_dotenv()
+
+BOT_TOKEN = os.getenv("BOT_TOKEN")
+CHAT_ID = os.getenv("CHAT_ID")
+TOP_HOLDERS = [
+    "DJVWifhSJoRWq8fPXRVJqbUjgAZphppSKsw9EedVuad6",
+    "7MV6vtiFJPhHgBQc6Ch4hHCrYfXRr5xkbqEVUnomKXCK",
+    "E5WchutHdCY8besK1gFg8Bc5AzXssZeDPKrNGWWemiiP",
+    "DttWaMuVvTiduZRnguLF7jNxTgiMBZ1hyAumKUiL2KRL",
+    "FLiPgGTXtBtEJoytikaywvWgbz5a56DdHKZU72HSYMFF"
+]
+
+# Držimo prethodne balanse za upoređenje
+PREVIOUS_BALANCES = {addr: 0.0 for addr in TOP_HOLDERS}
+
+# Zona za lokalno vreme (npr. Pariz)
+LOCAL_TZ = pytz.timezone("Europe/Paris")
 
 async def generate_report():
     try:
-        price = await get_token_price()
-        volume_data = await fetch_global_volume_delta()
-        holders, most_active = await get_holder_balances_and_activity()
+        async with Bot(token=BOT_TOKEN) as bot:
+            # ✅ Dobavi cenu i volumen
+            price = await get_token_price()
+            volume = await fetch_global_volume_delta()
 
-        message_lines = []
-        message_lines.append("ðŸ“ˆ <b>IzveÅ¡taj za DIS token (24h)</b>")
-        message_lines.append(f"ðŸ’° <b>Cena:</b> ${price:.6f}")
-        message_lines.append(f"ðŸ“‰ <b>Promena u 24h:</b> {volume_data['change_24h']}%")
-        message_lines.append(f"ðŸŸ¢ <b>Kupovine:</b> ${volume_data['buy_volume']:,}")
-        message_lines.append(f"ðŸ”´ <b>Prodaje:</b> ${volume_data['sell_volume']:,}")
+            # 📊 Emoji trenda cene
+            trend_emoji = "📈" if volume["change_24h"] > 0 else "📉"
 
-        # Najaktivniji holder
-        holder_tag = "None" if not most_active["address"] else most_active["address"][:4] + "..."
-        message_lines.append(f"ðŸƒâ€â™‚ï¸ <b>Najaktivniji holder:</b> {holder_tag} ({most_active['tx_count']} tx)")
+            # 🧠 Analiza holdera
+            most_active_address = None
+            largest_change = 0
+            holder_lines = []
 
-        # Top 5 holdera
-        message_lines.append("ðŸ’µ <b>Top 5 holdera (DIS balans):</b>")
-        for h in holders[:5]:
-            balance_str = f"{h['dis_balance']:,}" if isinstance(h['dis_balance'], (float, int)) else h['dis_balance']
-            message_lines.append(f"â€¢ {h['address'][:4]}... â€“ {balance_str} DIS")
+            for addr in TOP_HOLDERS:
+                balance = await get_dis_balance(addr)
+                previous = PREVIOUS_BALANCES.get(addr, 0.0)
+                delta = balance - previous
+                PREVIOUS_BALANCES[addr] = balance
 
-        # Dexscreener link
-        message_lines.append("ðŸ”— <a href='https://dexscreener.com/solana/ayckqvlkmnnqycrch2ffb1xej29nymzc5t6pvyrhackn'>Dexscreener DIS/SOL</a>")
+                if abs(delta) > abs(largest_change):
+                    largest_change = delta
+                    most_active_address = addr
 
-        message = "\n".join(message_lines)
-        await send_telegram_message(bot, chat_id, message)
+                if abs(delta) >= 10000:
+                    holder_lines.append(
+                        f"🔄 <b>{addr[:4]}...{addr[-4:]}</b> promena: {delta:.0f} DIS (trenutno: {balance:.0f})"
+                    )
+
+            if not holder_lines:
+                holder_lines.append("ℹ️ Nema značajnih promena balansa među holderima.")
+
+            # 🧾 Finalna poruka
+            message_lines = [
+                f"{trend_emoji} <b>DIS Izveštaj (24h)</b>",
+                f"💰 Cena: ${price:.6f}",
+                f"🟢 Kupovine: ${volume['buy_volume']:.0f}",
+                f"🔴 Prodaje: ${volume['sell_volume']:.0f}",
+                "",
+                "👤 <b>Najaktivniji holder:</b>",
+                most_active_address if most_active_address else "Nema aktivnosti",
+                "",
+                "📦 <b>Promene balansa:</b>",
+                *holder_lines,
+                "",
+                f"🔗 <a href='https://dexscreener.com/solana/ayckqvlkmnnqycrch2ffb1xej29nymzc5t6pvyrhackn'>Dexscreener link</a>"
+            ]
+
+            await send_telegram_message(bot, CHAT_ID, "\n".join(message_lines))
+
     except Exception as e:
         print(f"[ERROR generate_report] {e}")
 
+# Pokretanje scheduler-a
 if __name__ == "__main__":
-    asyncio.run(generate_report())
+    scheduler = AsyncIOScheduler(timezone=LOCAL_TZ)
+    scheduler.add_job(generate_report, "interval", minutes=5)
+    scheduler.start()
+
+    print("[INFO] Bot je pokrenut i izveštaj ide svakih 5 minuta.")
+    asyncio.get_event_loop().run_forever()
