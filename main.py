@@ -1,84 +1,47 @@
-from apscheduler.schedulers.blocking import BlockingScheduler
-from dotenv import load_dotenv
-from telegram import Bot
-import os
 import asyncio
-
-from utils import fetch_dexscreener_data, get_dexscreener_link
+from datetime import datetime
+from telegram import Bot
+from utils import (
+    get_token_price,
+    fetch_global_volume_delta,
+    send_telegram_message,
+)
 from holders_activity import get_holder_balances_and_activity
+import os
 
-load_dotenv()
-TOKEN = os.getenv("BOT_TOKEN")
-CHAT_ID = os.getenv("CHAT_ID")
-scheduler = BlockingScheduler(timezone="Europe/Paris")
+bot = Bot(token=os.getenv("BOT_TOKEN"))
+chat_id = os.getenv("CHAT_ID")
 
 async def generate_report():
     try:
-        async with Bot(token=TOKEN) as bot:
-            # 1. Cena, volumeni i promena cene
-            price, buy_24h, sell_24h, price_change = await fetch_dexscreener_data()
-            dexscreener_link = get_dexscreener_link()
+        price = await get_token_price()
+        volume_data = await fetch_global_volume_delta()
+        holders, most_active = await get_holder_balances_and_activity()
 
-            # Emoji trend
-            if price_change > 1:
-                trend_emoji = "📈"
-            elif price_change < -1:
-                trend_emoji = "📉"
-            else:
-                trend_emoji = "➖"
-            trend_line = f"{trend_emoji} <b>Promena u 24h:</b> {price_change:+.2f}%"
+        message_lines = []
+        message_lines.append("ðŸ“ˆ <b>IzveÅ¡taj za DIS token (24h)</b>")
+        message_lines.append(f"ðŸ’° <b>Cena:</b> ${price:.6f}")
+        message_lines.append(f"ðŸ“‰ <b>Promena u 24h:</b> {volume_data['change_24h']}%")
+        message_lines.append(f"ðŸŸ¢ <b>Kupovine:</b> ${volume_data['buy_volume']:,}")
+        message_lines.append(f"ðŸ”´ <b>Prodaje:</b> ${volume_data['sell_volume']:,}")
 
-            # 2. Holder aktivnost i balansi
-            holders_data, most_active = await get_holder_balances_and_activity()
+        # Najaktivniji holder
+        holder_tag = "None" if not most_active["address"] else most_active["address"][:4] + "..."
+        message_lines.append(f"ðŸƒâ€â™‚ï¸ <b>Najaktivniji holder:</b> {holder_tag} ({most_active['tx_count']} tx)")
 
-            if all(h["tx_count_24h"] == 0 for h in holders_data):
-                holder_lines = ["📭 <b>Nema aktivnosti holdera u poslednjih 24h</b>"]
-            else:
-                holder_lines = [
-                    f"🏃‍♂️ <b>Najaktivniji holder:</b> {most_active['address']} ({most_active['tx_count']} tx)"
-                ]
-                for h in holders_data:
-                    if isinstance(h["tx_count_24h"], int) and h["tx_count_24h"] > 0:
-                        holder_lines.append(
-                            f"• {h['address'][:5]}...{h['address'][-5:]} | 💼 {h['dis_balance']:.2f} DIS | 🔁 {h['tx_count_24h']} tx"
-                        )
+        # Top 5 holdera
+        message_lines.append("ðŸ’µ <b>Top 5 holdera (DIS balans):</b>")
+        for h in holders[:5]:
+            balance_str = f"{h['dis_balance']:,}" if isinstance(h['dis_balance'], (float, int)) else h['dis_balance']
+            message_lines.append(f"â€¢ {h['address'][:4]}... â€“ {balance_str} DIS")
 
-            # 3. Top 5 holdera po balansu
-            top_5 = sorted(
-                [h for h in holders_data if isinstance(h["dis_balance"], (int, float))],
-                key=lambda x: x["dis_balance"],
-                reverse=True
-            )[:5]
+        # Dexscreener link
+        message_lines.append("ðŸ”— <a href='https://dexscreener.com/solana/ayckqvlkmnnqycrch2ffb1xej29nymzc5t6pvyrhackn'>Dexscreener DIS/SOL</a>")
 
-            top_5_lines = ["🏦 <b>Top 5 holdera (DIS balans):</b>"]
-            for h in top_5:
-                short = f"{h['address'][:5]}...{h['address'][-5:]}"
-                bal = f"{h['dis_balance']:,.2f}"
-                top_5_lines.append(f"• {short} → {bal} DIS")
-
-            # 4. Finalna poruka
-            message_lines = [
-                f"📈 <b>Izveštaj za DIS token (24h)</b>",
-                f"💰 Cena: ${price:.6f}",
-                trend_line,
-                f"🟢 <b>Kupovine:</b> ${buy_24h:,.2f}",
-                f"🔴 <b>Prodaje:</b> ${sell_24h:,.2f}",
-                "",
-                *holder_lines,
-                "",
-                *top_5_lines,
-                "",
-                f"🔗 <a href=\"{dexscreener_link}\">Dexscreener DIS/SOL</a>"
-            ]
-
-            await bot.send_message(chat_id=CHAT_ID, text="\n".join(message_lines), parse_mode="HTML")
-
+        message = "\n".join(message_lines)
+        await send_telegram_message(bot, chat_id, message)
     except Exception as e:
-        print(f"[Bot error] {e}")
-
-@scheduler.scheduled_job('interval', minutes=5)
-def scheduled_job():
-    asyncio.run(generate_report())
+        print(f"[ERROR generate_report] {e}")
 
 if __name__ == "__main__":
-    scheduler.start()
+    asyncio.run(generate_report())
