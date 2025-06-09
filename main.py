@@ -1,9 +1,10 @@
+
 import os
 import asyncio
 from dotenv import load_dotenv
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from telegram import Bot
-from datetime import datetime, timezone
+from datetime import datetime
 import pytz
 
 from utils import (
@@ -25,23 +26,17 @@ TOP_HOLDERS = [
     "FLiPgGTXtBtEJoytikaywvWgbz5a56DdHKZU72HSYMFF"
 ]
 
-# Držimo prethodne balanse za upoređenje
 PREVIOUS_BALANCES = {addr: 0.0 for addr in TOP_HOLDERS}
-
-# Zona za lokalno vreme (npr. Pariz)
 LOCAL_TZ = pytz.timezone("Europe/Paris")
 
 async def generate_report():
     try:
         async with Bot(token=BOT_TOKEN) as bot:
-            # ✅ Dobavi cenu i volumen
             price = await get_token_price()
             volume = await fetch_global_volume_delta()
 
-            # 📊 Emoji trenda cene
             trend_emoji = "📈" if volume["change_24h"] > 0 else "📉"
 
-            # 🧠 Analiza holdera
             most_active_address = None
             largest_change = 0
             holder_lines = []
@@ -64,7 +59,6 @@ async def generate_report():
             if not holder_lines:
                 holder_lines.append("ℹ️ Nema značajnih promena balansa među holderima.")
 
-            # 🧾 Finalna poruka
             message_lines = [
                 f"{trend_emoji} <b>DIS Izveštaj (24h)</b>",
                 f"💰 Cena: ${price:.6f}",
@@ -85,11 +79,15 @@ async def generate_report():
     except Exception as e:
         print(f"[ERROR generate_report] {e}")
 
-# Pokretanje scheduler-a
-if __name__ == "__main__":
+# ✅ Asinhrona main petlja koja omogućava apscheduler-u da radi
+async def main():
     scheduler = AsyncIOScheduler(timezone=LOCAL_TZ)
     scheduler.add_job(generate_report, "interval", minutes=5)
     scheduler.start()
 
     print("[INFO] Bot je pokrenut i izveštaj ide svakih 5 minuta.")
-    asyncio.get_event_loop().run_forever()
+    while True:
+        await asyncio.sleep(60)
+
+if __name__ == "__main__":
+    asyncio.run(main())
