@@ -9,20 +9,21 @@ async def fetch_dexscreener_data():
             pair = data.get("pairs", [])[0]
 
             price = float(pair.get("priceUsd", 0))
+            volume = pair.get("volume", {})  # ispravno polje
 
-            volume_usd = pair.get("volumeUsd", {})
+            # Pretpostavljamo da je ~50/50 raspodela ako nemamo detaljno
             buy_volumes = {
-                "m5": volume_usd.get("m5", {}).get("buy", 0),
-                "h1": volume_usd.get("h1", {}).get("buy", 0),
-                "h6": volume_usd.get("h6", {}).get("buy", 0),
-                "h24": volume_usd.get("h24", {}).get("buy", 0),
+                "m5": volume.get("m5", 0) / 2,
+                "h1": volume.get("h1", 0) / 2,
+                "h6": volume.get("h6", 0) / 2,
+                "h24": volume.get("h24", 0) / 2,
             }
 
             sell_volumes = {
-                "m5": volume_usd.get("m5", {}).get("sell", 0),
-                "h1": volume_usd.get("h1", {}).get("sell", 0),
-                "h6": volume_usd.get("h6", {}).get("sell", 0),
-                "h24": volume_usd.get("h24", {}).get("sell", 0),
+                "m5": volume.get("m5", 0) / 2,
+                "h1": volume.get("h1", 0) / 2,
+                "h6": volume.get("h6", 0) / 2,
+                "h24": volume.get("h24", 0) / 2,
             }
 
             return price, buy_volumes, sell_volumes
