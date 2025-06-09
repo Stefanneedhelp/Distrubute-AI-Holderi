@@ -15,14 +15,22 @@ scheduler = BlockingScheduler(timezone="Europe/Paris")
 async def generate_report():
     try:
         async with Bot(token=TOKEN) as bot:
-            # 1. Cena i volume
-            price, buy_24h, sell_24h = await fetch_dexscreener_data()
+            # 1. Cena, volumeni i promena cene
+            price, buy_24h, sell_24h, price_change = await fetch_dexscreener_data()
             dexscreener_link = get_dexscreener_link()
 
-            # 2. Holderi
+            # Emoji trend
+            if price_change > 1:
+                trend_emoji = "📈"
+            elif price_change < -1:
+                trend_emoji = "📉"
+            else:
+                trend_emoji = "➖"
+            trend_line = f"{trend_emoji} <b>Promena u 24h:</b> {price_change:+.2f}%"
+
+            # 2. Holder aktivnost i balansi
             holders_data, most_active = await get_holder_balances_and_activity()
 
-            # 3. Aktivnost
             if all(h["tx_count_24h"] == 0 for h in holders_data):
                 holder_lines = ["📭 <b>Nema aktivnosti holdera u poslednjih 24h</b>"]
             else:
@@ -35,7 +43,7 @@ async def generate_report():
                             f"• {h['address'][:5]}...{h['address'][-5:]} | 💼 {h['dis_balance']:.2f} DIS | 🔁 {h['tx_count_24h']} tx"
                         )
 
-            # 4. Top 5 holdera po balansu
+            # 3. Top 5 holdera po balansu
             top_5 = sorted(
                 [h for h in holders_data if isinstance(h["dis_balance"], (int, float))],
                 key=lambda x: x["dis_balance"],
@@ -48,10 +56,11 @@ async def generate_report():
                 bal = f"{h['dis_balance']:,.2f}"
                 top_5_lines.append(f"• {short} → {bal} DIS")
 
-            # 5. Konačna poruka
+            # 4. Finalna poruka
             message_lines = [
                 f"📈 <b>Izveštaj za DIS token (24h)</b>",
                 f"💰 Cena: ${price:.6f}",
+                trend_line,
                 f"🟢 <b>Kupovine:</b> ${buy_24h:,.2f}",
                 f"🔴 <b>Prodaje:</b> ${sell_24h:,.2f}",
                 "",
@@ -73,4 +82,3 @@ def scheduled_job():
 
 if __name__ == "__main__":
     scheduler.start()
-
