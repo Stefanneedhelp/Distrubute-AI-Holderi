@@ -3,7 +3,7 @@ import httpx
 from datetime import datetime, timedelta
 from telegram import Bot
 
-# ✅ Ispravan Dexscreener URL sa validnim pair ID
+# ✅ Dexscreener pair endpoint za statične podatke
 DEXSCREENER_URL = "https://api.dexscreener.com/latest/dex/pairs/solana/AyCkqVLkmMnqYCrCh2fFB1xEj29nymzc5t6PvyRHaCKn"
 
 BOT_TOKEN = os.getenv("BOT_TOKEN")
@@ -127,7 +127,7 @@ async def get_dis_balance(address: str):
         print(f"[ERROR get_dis_balance] {address}: {e}")
         return 0.0
 
-# ✅ Dohvatanje recentnih (5m) buy/sell transakcija
+# ✅ Dohvatanje recentnih (5m) buy/sell transakcija sa ispravnog endpointa
 async def fetch_recent_trades():
     try:
         async with httpx.AsyncClient(timeout=10.0) as client:
@@ -139,18 +139,15 @@ async def fetch_recent_trades():
 
             data = response.json()
             pairs = data.get("pairs", [])
+            now = datetime.utcnow()
 
-            # Filtriraj odgovarajući par sa tvojim DIS tokenom
             for pair in pairs:
-                if pair.get("pairAddress") == "AyCkqVLkmMnqYCrCh2fFB1xEj29nymzc5t6PvyRHaCKn":
-                    trades = pair.get("txns", {}).get("m5", [])
-                    now = datetime.utcnow()
-                    recent_trades = [
+                trades = pair.get("txns", {}).get("m5", [])
+                if trades:
+                    return [
                         trade for trade in trades
                         if now - datetime.utcfromtimestamp(trade["timestamp"]) <= timedelta(minutes=5)
                     ]
-                    if recent_trades:
-                        return recent_trades
 
             print("[DEBUG fetch_recent_trades] No recent trades found.")
             return []
