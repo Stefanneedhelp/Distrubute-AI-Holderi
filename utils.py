@@ -131,23 +131,29 @@ async def get_dis_balance(address: str):
 async def fetch_recent_trades():
     try:
         async with httpx.AsyncClient(timeout=10.0) as client:
-            response = await client.get(DEXSCREENER_URL)
+            response = await client.get("https://api.dexscreener.com/latest/dex/search?q=DIS")
 
             if response.status_code != 200:
                 print(f"[ERROR fetch_recent_trades] Status code: {response.status_code}")
                 return []
 
             data = response.json()
-            trades = data.get("pair", {}).get("txns", {}).get("m5", [])
-            now = datetime.utcnow()
+            pairs = data.get("pairs", [])
 
-            recent_trades = []
-            for trade in trades:
-                ts = datetime.utcfromtimestamp(trade["timestamp"])
-                if now - ts <= timedelta(minutes=5):
-                    recent_trades.append(trade)
+            # Filtriraj odgovarajući par sa tvojim DIS tokenom
+            for pair in pairs:
+                if pair.get("pairAddress") == "AyCkqVLkmMnqYCrCh2fFB1xEj29nymzc5t6PvyRHaCKn":
+                    trades = pair.get("txns", {}).get("m5", [])
+                    now = datetime.utcnow()
+                    recent_trades = [
+                        trade for trade in trades
+                        if now - datetime.utcfromtimestamp(trade["timestamp"]) <= timedelta(minutes=5)
+                    ]
+                    if recent_trades:
+                        return recent_trades
 
-            return recent_trades
+            print("[DEBUG fetch_recent_trades] No recent trades found.")
+            return []
 
     except Exception as e:
         print(f"[ERROR fetch_recent_trades] {e}")
