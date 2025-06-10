@@ -27,6 +27,16 @@ TOP_HOLDERS = [
     "7PypumCQ4wco2bV4UAjCwbrdCdnWwyAacjxRhX3yuz8R"
     "CKhPzjCE8BE4BPior7RdUpDvjRx75Zt6RsVA9jdHVLy8"
     "C3QpoYdQfkyEH5ngZ29Ws7Gb45WTE48njS8DfwSdJexm"
+    "9JHEUakXY3wGnQuRaV4uJQPY5nu81ndJ1fHxZZqNH798"
+    "9LwsPtQLsZxH2RXiRcTRPVr3fsuyz2SsFdxvccfm4Gqs"
+    "GB2HmT2tPSvksGt7QN46TYpmqcyhcQm89d6TyJtNwQ3L"
+    "G1toYqBwHz1ou9za6sTNsWAkA7eUenNt2irm94T4Pr5a"
+    "8V9FrBAvMjn4c7cDkMGTgYqVekBZVkKe3GguaqrNWpTM"
+    "2WxdxZ9bhaCU2mPssvZZytmD5dZZfYs7wFnne63iZHmE"
+    "7JWnEjndB1tiedTZW6oriQbkv1YhAvCt3ri6FP7xx576"
+    "3cdFmMUdNev6y2WRvSkeFEc263Nfmzf2ZTTTwAJMnnAf"
+    "GybhvUZzTq4qYBc292dz4HE4oQPZJGC9xGJdEH9uYeHK"
+    "6dvpMLzunxUDybws6giNnPJ5nxpwvuugovsyPs6VzVdV"
 ]
 
 PREVIOUS_BALANCES = {addr: 0.0 for addr in TOP_HOLDERS}
