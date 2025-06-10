@@ -1,6 +1,7 @@
 import httpx
 import os
 import json
+import asyncio
 from datetime import datetime, timedelta
 from holders import TOP_HOLDERS
 
@@ -76,9 +77,18 @@ async def get_holder_balances_and_activity():
                 # Aktivnost iz Solscan API-ja
                 tx_url = f"https://public-api.solscan.io/account/transactions?address={address}&limit=20"
                 tx_resp = await client.get(tx_url)
-                transactions = tx_resp.json()
-                activity_24h = 0
 
+                if tx_resp.status_code != 200:
+                    print(f"[WARN] Solscan error {tx_resp.status_code} za {address}")
+                    transactions = []
+                else:
+                    try:
+                        transactions = tx_resp.json()
+                    except Exception as e:
+                        print(f"[ERROR Solscan JSON] {address}: {e}")
+                        transactions = []
+
+                activity_24h = 0
                 for tx in transactions:
                     block_time = tx.get("blockTime")
                     if block_time:
@@ -102,6 +112,8 @@ async def get_holder_balances_and_activity():
                         "change": balance_diff,
                         "tx_count_24h": activity_24h
                     })
+
+                await asyncio.sleep(0.2)  # Pauza da izbegnemo rate limit
 
             except Exception as e:
                 print(f"[ERROR holder check] {address}: {e}")
