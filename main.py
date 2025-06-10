@@ -1,10 +1,12 @@
 import asyncio
-from holders_activity import get_holder_balances_and_activity
-from utils import get_token_price, send_telegram_message
+from holders_activity import 
+get_holder_balances_and_activity
+from utils import 
+get_token_price, send_telegram_message
 
 async def main():
     # Cena tokena
-    dis_price = await get_token_price("2AEU9yWk3dEGnVwRaKv4div5TarC4dn7axFLyz6zG4Pf")
+    dis_price = await get_token_price()
 
     # Aktivnosti i promene balansa
     changes, most_active = await get_holder_balances_and_activity()
