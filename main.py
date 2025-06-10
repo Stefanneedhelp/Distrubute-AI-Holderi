@@ -1,20 +1,19 @@
+
 import asyncio
-from holders_activity import 
-get_holder_balances_and_activity
-from utils import 
-get_token_price, send_telegram_message
+from holders_activity import get_holder_balances_and_activity
+from utils import get_token_price_and_volume, send_telegram_message
 
 async def main():
-    # Cena tokena
-    dis_price = await get_token_price()
+    # Cena i volumen
+    price, volume, buy_usd, sell_usd = await get_token_price_and_volume()
 
     # Aktivnosti i promene balansa
     changes, most_active = await get_holder_balances_and_activity()
 
-    # Formatiraj poruku
+    # Format poruke
     msg = "📉 DIS Izveštaj (24h)\n"
-    msg += f"💵 Cena: ${dis_price:.6f}\n"
-    msg += f"🟢 Kupovine: $0\n🔴 Prodaje: $0\n\n"
+    msg += f"💵 Cena: ${price:.6f}\n"
+    msg += f"🟢 Kupovine: ${buy_usd:,.0f}\n🔴 Prodaje: ${sell_usd:,.0f}\n\n"
 
     # Najaktivniji holder
     if most_active:
