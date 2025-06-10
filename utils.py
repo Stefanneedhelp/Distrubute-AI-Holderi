@@ -5,28 +5,31 @@ BOT_TOKEN = os.getenv("BOT_TOKEN")
 CHAT_ID = os.getenv("CHAT_ID")
 DIS_MINT = os.getenv("DIS_MINT")
 
-# ✅ Dohvata cenu i volume koristeći /search endpoint
+# ✅ BirdEye API – vraća cenu i ukupan volume (bez buy/sell)
 async def get_token_price_and_volume():
     try:
         async with httpx.AsyncClient(timeout=10.0) as client:
-            url = f"https://api.dexscreener.com/latest/dex/search?q={DIS_MINT}"
+            # Cena
+            url = f"https://public-api.birdeye.so/public/price?address={DIS_MINT}"
             r = await client.get(url)
-
             if r.status_code != 200:
-                print(f"[WARN] Dexscreener returned {r.status_code}")
+                print(f"[WARN] BirdEye price error {r.status_code}")
                 return 0.0, 0.0, 0.0, 0.0
 
             data = r.json()
-            if "pairs" in data and data["pairs"]:
-                pair = data["pairs"][0]
-                price = float(pair["priceUsd"])
-                volume = float(pair["volume"]["h24"])
-                buy_volume = float(pair["buyVolume"]["h24"])
-                sell_volume = float(pair["sellVolume"]["h24"])
-                return price, volume, buy_volume, sell_volume
+            price = float(data["data"]["value"])
+
+            # Volume
+            v_url = f"https://public-api.birdeye.so/public/token/volume?address={DIS_MINT}"
+            v_resp = await client.get(v_url)
+            if v_resp.status_code == 200:
+                v_data = v_resp.json()
+                volume = float(v_data["data"]["volume24hQuote"])
             else:
-                print("[WARN] No pair found in Dexscreener search")
-                return 0.0, 0.0, 0.0, 0.0
+                volume = 0.0
+
+            return price, volume, 0.0, 0.0
+
     except Exception as e:
         print(f"[ERROR get_token_price_and_volume] {e}")
         return 0.0, 0.0, 0.0, 0.0
