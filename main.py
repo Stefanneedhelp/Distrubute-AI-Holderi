@@ -1,92 +1,116 @@
 import os
-import asyncio
-from dotenv import load_dotenv
-from apscheduler.schedulers.asyncio import AsyncIOScheduler
+import httpx
 from telegram import Bot
-from datetime import datetime
-import pytz
 
-from utils import (
-    get_token_price,
-    fetch_global_volume_delta,
-    send_telegram_message,
-    get_dis_balance
-)
-
-load_dotenv()
+# Dexscreener pair za DIS token na Solani
+DEXSCREENER_URL = "https://api.dexscreener.com/latest/dex/pairs/solana/ayckqvlkmnnqycrch2ffb1xej29nymzc5t6pvyrhackn"
 
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 CHAT_ID = os.getenv("CHAT_ID")
-TOP_HOLDERS = [
-    "DJVWifhSJoRWq8fPXRVJqbUjgAZphppSKsw9EedVuad6",
-    "7MV6vtiFJPhHgBQc6Ch4hHCrYfXRr5xkbqEVUnomKXCK",
-    "E5WchutHdCY8besK1gFg8Bc5AzXssZeDPKrNGWWemiiP",
-    "DttWaMuVvTiduZRnguLF7jNxTgiMBZ1hyAumKUiL2KRL",
-    "FLiPgGTXtBtEJoytikaywvWgbz5a56DdHKZU72HSYMFF"
-]
 
-PREVIOUS_BALANCES = {addr: 0.0 for addr in TOP_HOLDERS}
-LOCAL_TZ = pytz.timezone("Europe/Paris")
-
-async def generate_report():
+# ✅ Dohvatanje cene tokena
+async def get_token_price():
     try:
-        async with Bot(token=BOT_TOKEN) as bot:
-            price = await get_token_price()
-            volume = await fetch_global_volume_delta()
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            response = await client.get(DEXSCREENER_URL)
 
-            trend_emoji = "📈" if volume["change_24h"] > 0 else "📉"
+            if response.status_code != 200:
+                print(f"[ERROR get_token_price] Status code: {response.status_code}")
+                return None
 
-            most_active_address = None
-            largest_change = 0
-            holder_lines = []
+            data = response.json()
 
-            for addr in TOP_HOLDERS:
-                balance = await get_dis_balance(addr)
-                previous = PREVIOUS_BALANCES.get(addr, 0.0)
-                delta = balance - previous
-                PREVIOUS_BALANCES[addr] = balance
+            if not data or "pair" not in data or "priceUsd" not in data["pair"]:
+                print(f"[ERROR get_token_price] Invalid response format: {data}")
+                return None
 
-                if abs(delta) > abs(largest_change):
-                    largest_change = delta
-                    most_active_address = addr
-
-                if abs(delta) >= 10000:
-                    holder_lines.append(
-                        f"🔄 <b>{addr[:4]}...{addr[-4:]}</b> promena: {delta:.0f} DIS (trenutno: {balance:.0f})"
-                    )
-
-            if not holder_lines:
-                holder_lines.append("ℹ️ Nema značajnih promena balansa među holderima.")
-
-            message_lines = [
-                f"{trend_emoji} <b>DIS Izveštaj (24h)</b>",
-                f"💰 Cena: ${price:.6f}",
-                f"🟢 Kupovine: ${volume['buy_volume']:.0f}",
-                f"🔴 Prodaje: ${volume['sell_volume']:.0f}",
-                "",
-                "👤 <b>Najaktivniji holder:</b>",
-                most_active_address if most_active_address else "Nema aktivnosti",
-                "",
-                "📦 <b>Promene balansa:</b>",
-                *holder_lines,
-                "",
-                f"🔗 <a href='https://dexscreener.com/solana/ayckqvlkmnnqycrch2ffb1xej29nymzc5t6pvyrhackn'>Dexscreener link</a>"
-            ]
-
-            await send_telegram_message(bot, CHAT_ID, "\n".join(message_lines))
+            return float(data["pair"]["priceUsd"])
 
     except Exception as e:
-        print(f"[ERROR generate_report] {e}")
+        print(f"[ERROR get_token_price] {e}")
+        return None
 
-# ✅ Asinhrona main petlja koja omogućava apscheduler-u da radi
-async def main():
-    scheduler = AsyncIOScheduler(timezone=LOCAL_TZ)
-    scheduler.add_job(generate_report, "interval", minutes=5)
-    scheduler.start()
+# ✅ Dohvatanje volumena kupovina/prodaja
+async def fetch_global_volume_delta():
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            response = await client.get(DEXSCREENER_URL)
 
-    print("[INFO] Bot je pokrenut i izveštaj ide svakih 5 minuta.")
-    while True:
-        await asyncio.sleep(60)
+            if response.status_code != 200:
+                print(f"[ERROR fetch_global_volume_delta] Status code: {response.status_code}")
+                return None
 
-if __name__ == "__main__":
-    asyncio.run(main())
+            data = response.json()
+
+            if not data or "pair" not in data or "volume" not in data["pair"]:
+                print(f"[ERROR fetch_global_volume_delta] Invalid response format: {data}")
+                return None
+
+            volume_data = data["pair"]["volume"]
+            buy_volume = float(volume_data.get("buy", 0))
+            sell_volume = float(volume_data.get("sell", 0))
+
+            return {
+                "buy_volume": buy_volume,
+                "sell_volume": sell_volume,
+                "change_24h": buy_volume - sell_volume
+            }
+
+    except Exception as e:
+        print(f"[ERROR fetch_global_volume_delta] {e}")
+        return None
+
+# ✅ Slanje poruke na Telegram
+async def send_telegram_message(bot: Bot, chat_id: str, message: str):
+    try:
+        await bot.send_message(
+            chat_id=chat_id,
+            text=message,
+            parse_mode="HTML",
+            disable_web_page_preview=False
+        )
+    except Exception as e:
+        print(f"[ERROR send_telegram_message] {e}")
+
+# ✅ Dohvatanje DIS balansa koristeći Alchemy
+async def get_dis_balance(address: str):
+    try:
+        ALCHEMY_RPC_URL = os.getenv("ALCHEMY_RPC_URL")
+        MINT = os.getenv("DIS_MINT_ADDRESS")
+
+        if not ALCHEMY_RPC_URL or not MINT:
+            print("[ERROR get_dis_balance] Missing env variables.")
+            return 0.0
+
+        headers = {"Content-Type": "application/json"}
+        payload = {
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "getTokenAccountsByOwner",
+            "params": [
+                address,
+                {"mint": MINT},
+                {"encoding": "jsonParsed"}
+            ]
+        }
+
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            response = await client.post(ALCHEMY_RPC_URL, json=payload, headers=headers)
+
+            if response.status_code != 200:
+                print(f"[ERROR get_dis_balance] Status code: {response.status_code}")
+                return 0.0
+
+            data = response.json()
+            value = data.get("result", {}).get("value", [])
+
+            if not value:
+                print(f"[DEBUG get_dis_balance] No token accounts for {address}")
+                return 0.0
+
+            amount = value[0]["account"]["data"]["parsed"]["info"]["tokenAmount"]["uiAmount"]
+            return float(amount)
+
+    except Exception as e:
+        print(f"[ERROR get_dis_balance] {address}: {e}")
+        return 0.0
