@@ -22,6 +22,11 @@ TOP_HOLDERS = [
     "E5WchutHdCY8besK1gFg8Bc5AzXssZeDPKrNGWWemiiP",
     "DttWaMuVvTiduZRnguLF7jNxTgiMBZ1hyAumKUiL2KRL",
     "FLiPgGTXtBtEJoytikaywvWgbz5a56DdHKZU72HSYMFF"
+    "6FHi44dTMTsemG3SHvitgLBDEeJjHamfbc7dzwyCvpK2"
+    "UD3oWFYRxmLH7gH2148bnv6UwLWTmg3ZfRYwdRCwsj8"
+    "7PypumCQ4wco2bV4UAjCwbrdCdnWwyAacjxRhX3yuz8R"
+    "CKhPzjCE8BE4BPior7RdUpDvjRx75Zt6RsVA9jdHVLy8"
+    "C3QpoYdQfkyEH5ngZ29Ws7Gb45WTE48njS8DfwSdJexm:
 ]
 
 PREVIOUS_BALANCES = {addr: 0.0 for addr in TOP_HOLDERS}
