@@ -1,5 +1,6 @@
 import os
 import httpx
+from datetime import datetime, timedelta
 from telegram import Bot
 
 # ✅ Ispravan Dexscreener URL sa validnim pair ID
@@ -72,12 +73,12 @@ async def fetch_global_volume_delta():
         return None
 
 # ✅ Slanje poruke na Telegram
-async def send_telegram_message(bot: Bot, chat_id: str, message: str):
+async def send_telegram_message(bot: Bot, chat_id: str, message: str, parse_mode="HTML"):
     try:
         await bot.send_message(
             chat_id=chat_id,
             text=message,
-            parse_mode="HTML",
+            parse_mode=parse_mode,
             disable_web_page_preview=False
         )
     except Exception as e:
@@ -125,3 +126,29 @@ async def get_dis_balance(address: str):
     except Exception as e:
         print(f"[ERROR get_dis_balance] {address}: {e}")
         return 0.0
+
+# ✅ Dohvatanje recentnih (5m) buy/sell transakcija
+async def fetch_recent_trades():
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            response = await client.get(DEXSCREENER_URL)
+
+            if response.status_code != 200:
+                print(f"[ERROR fetch_recent_trades] Status code: {response.status_code}")
+                return []
+
+            data = response.json()
+            trades = data.get("pair", {}).get("txns", {}).get("m5", [])
+            now = datetime.utcnow()
+
+            recent_trades = []
+            for trade in trades:
+                ts = datetime.utcfromtimestamp(trade["timestamp"])
+                if now - ts <= timedelta(minutes=5):
+                    recent_trades.append(trade)
+
+            return recent_trades
+
+    except Exception as e:
+        print(f"[ERROR fetch_recent_trades] {e}")
+        return []
