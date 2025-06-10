@@ -1,15 +1,13 @@
 import httpx
 import os
-import asyncio
 
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 CHAT_ID = os.getenv("CHAT_ID")
 
-# Direktna Dexscreener pair adresa za DIS token
 DEX_PAIR_ADDRESS = "AyCkqVaYArj6uGvVhEqKUw6vY2BrZhS1F13ArLTVaCKn"
 
-# ✅ Dohvata cenu DIS tokena koristeći direktnu pair adresu
-async def get_token_price() -> float:
+# ✅ Dohvata cenu i 24h obim trgovine sa Dexscreener-a
+async def get_token_price_and_volume():
     try:
         async with httpx.AsyncClient(timeout=10.0) as client:
             url = f"https://api.dexscreener.com/latest/dex/pairs/solana/{DEX_PAIR_ADDRESS}"
@@ -18,13 +16,16 @@ async def get_token_price() -> float:
 
             if "pair" in data:
                 price = float(data["pair"]["priceUsd"])
-                return price
+                volume = float(data["pair"]["volume"]["h24"])
+                buy_volume = float(data["pair"]["buyVolume"]["h24"])
+                sell_volume = float(data["pair"]["sellVolume"]["h24"])
+                return price, volume, buy_volume, sell_volume
             else:
                 print("[WARN] Pair nije pronađen")
-                return 0.0
+                return 0.0, 0.0, 0.0, 0.0
     except Exception as e:
-        print(f"[ERROR get_token_price] {e}")
-        return 0.0
+        print(f"[ERROR get_token_price_and_volume] {e}")
+        return 0.0, 0.0, 0.0, 0.0
 
 # 📤 Šalje poruku na Telegram
 async def send_telegram_message(text: str) -> None:
