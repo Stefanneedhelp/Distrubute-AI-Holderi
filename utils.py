@@ -2,60 +2,88 @@ import os
 import httpx
 from telegram import Bot
 
-# Dexscreener pair za DIS token na Solani
-DEXSCREENER_URL = "https://api.dexscreener.com/latest/dex/pairs/solana/ayckqvlkmnnqycrch2ffb1xej29nymzc5t6pvyrhackn"
+# ✅ Ispravan Dexscreener URL sa validnim pair ID
+DEXSCREENER_URL = "https://api.dexscreener.com/latest/dex/pairs/solana/AyCkqVLkmMnqYCrCh2fFB1xEj29nymzc5t6PvyRHaCKn"
 
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 CHAT_ID = os.getenv("CHAT_ID")
 
-# ✅ Funkcija: Dohvatanje cene DIS tokena
+# ✅ Formatiranje velikih brojeva (npr. 113400000 -> 113.4M)
+def format_number(n):
+    if n >= 1_000_000_000:
+        return f"{n / 1_000_000_000:.1f}B"
+    elif n >= 1_000_000:
+        return f"{n / 1_000_000:.1f}M"
+    elif n >= 1_000:
+        return f"{n / 1_000:.1f}K"
+    else:
+        return str(round(n))
+
+# ✅ Dohvatanje cene tokena
 async def get_token_price():
     try:
         async with httpx.AsyncClient(timeout=10.0) as client:
             response = await client.get(DEXSCREENER_URL)
+
+            if response.status_code != 200:
+                print(f"[ERROR get_token_price] Status code: {response.status_code}")
+                return None
+
             data = response.json()
 
-            if data and "pair" in data and "priceUsd" in data["pair"]:
-                return float(data["pair"]["priceUsd"])
+            if not data or "pair" not in data or not data["pair"]:
+                print(f"[ERROR get_token_price] Invalid response format: {data}")
+                return None
 
-            print("[ERROR get_token_price] Unexpected API response:", data)
-            return None
+            return float(data["pair"]["priceUsd"])
+
     except Exception as e:
         print(f"[ERROR get_token_price] {e}")
         return None
 
-# ✅ Funkcija: Dohvatanje kupovina i prodaja za 24h
+# ✅ Dohvatanje volumena kupovina/prodaja
 async def fetch_global_volume_delta():
     try:
         async with httpx.AsyncClient(timeout=10.0) as client:
             response = await client.get(DEXSCREENER_URL)
+
+            if response.status_code != 200:
+                print(f"[ERROR fetch_global_volume_delta] Status code: {response.status_code}")
+                return None
+
             data = response.json()
 
-            if data and "pair" in data and "volume" in data["pair"]:
-                volume_data = data["pair"]["volume"]
-                buy_volume = float(volume_data.get("buy", 0))
-                sell_volume = float(volume_data.get("sell", 0))
+            if not data or "pair" not in data or "volume" not in data["pair"]:
+                print(f"[ERROR fetch_global_volume_delta] Invalid response format: {data}")
+                return None
 
-                return {
-                    "buy_volume": buy_volume,
-                    "sell_volume": sell_volume,
-                    "change_24h": buy_volume - sell_volume
-                }
+            volume_data = data["pair"]["volume"]
+            buy_volume = float(volume_data.get("buy", 0))
+            sell_volume = float(volume_data.get("sell", 0))
 
-            print("[ERROR fetch_global_volume_delta] Unexpected API response:", data)
-            return None
+            return {
+                "buy_volume": buy_volume,
+                "sell_volume": sell_volume,
+                "change_24h": buy_volume - sell_volume
+            }
+
     except Exception as e:
         print(f"[ERROR fetch_global_volume_delta] {e}")
         return None
 
-# ✅ Funkcija: Slanje poruke na Telegram
+# ✅ Slanje poruke na Telegram
 async def send_telegram_message(bot: Bot, chat_id: str, message: str):
     try:
-        await bot.send_message(chat_id=chat_id, text=message, parse_mode="HTML", disable_web_page_preview=False)
+        await bot.send_message(
+            chat_id=chat_id,
+            text=message,
+            parse_mode="HTML",
+            disable_web_page_preview=False
+        )
     except Exception as e:
         print(f"[ERROR send_telegram_message] {e}")
 
-# ✅ Funkcija: Dohvatanje balansa DIS tokena koristeći Alchemy RPC
+# ✅ Dohvatanje DIS balansa koristeći Alchemy RPC
 async def get_dis_balance(address: str):
     try:
         ALCHEMY_RPC_URL = os.getenv("ALCHEMY_RPC_URL")
@@ -79,10 +107,16 @@ async def get_dis_balance(address: str):
 
         async with httpx.AsyncClient(timeout=10.0) as client:
             response = await client.post(ALCHEMY_RPC_URL, json=payload, headers=headers)
-            data = response.json()
 
+            if response.status_code != 200:
+                print(f"[ERROR get_dis_balance] Status code: {response.status_code}")
+                return 0.0
+
+            data = response.json()
             value = data.get("result", {}).get("value", [])
+
             if not value:
+                print(f"[DEBUG get_dis_balance] No token accounts for {address}")
                 return 0.0
 
             amount = value[0]["account"]["data"]["parsed"]["info"]["tokenAmount"]["uiAmount"]
