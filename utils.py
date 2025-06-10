@@ -5,15 +5,23 @@ import asyncio
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 CHAT_ID = os.getenv("CHAT_ID")
 
-# 🔄 Dohvata cenu tokena sa Dexscreener
-async def get_token_price(mint: str) -> float:
+# Direktna Dexscreener pair adresa za DIS token
+DEX_PAIR_ADDRESS = "AyCkqVaYArj6uGvVhEqKUw6vY2BrZhS1F13ArLTVaCKn"
+
+# ✅ Dohvata cenu DIS tokena koristeći direktnu pair adresu
+async def get_token_price() -> float:
     try:
         async with httpx.AsyncClient(timeout=10.0) as client:
-            url = f"https://api.dexscreener.com/latest/dex/pairs/solana/{mint}"
+            url = f"https://api.dexscreener.com/latest/dex/pairs/solana/{DEX_PAIR_ADDRESS}"
             r = await client.get(url)
             data = r.json()
-            price = float(data["pair"]["priceUsd"])
-            return price
+
+            if "pair" in data:
+                price = float(data["pair"]["priceUsd"])
+                return price
+            else:
+                print("[WARN] Pair nije pronađen")
+                return 0.0
     except Exception as e:
         print(f"[ERROR get_token_price] {e}")
         return 0.0
