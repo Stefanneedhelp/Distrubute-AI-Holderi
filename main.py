@@ -37,6 +37,7 @@ TOP_HOLDERS = [
     "3cdFmMUdNev6y2WRvSkeFEc263Nfmzf2ZTTTwAJMnnAf"
     "GybhvUZzTq4qYBc292dz4HE4oQPZJGC9xGJdEH9uYeHK"
     "6dvpMLzunxUDybws6giNnPJ5nxpwvuugovsyPs6VzVdV"
+    "12Gq9SpDoLPFEjuBVwu1zJZJtwNQj4Bqnn3uCAiGkm2T"
 ]
 
 PREVIOUS_BALANCES = {addr: 0.0 for addr in TOP_HOLDERS}
