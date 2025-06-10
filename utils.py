@@ -3,25 +3,29 @@ import os
 
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 CHAT_ID = os.getenv("CHAT_ID")
+DIS_MINT = os.getenv("DIS_MINT")
 
-DEX_PAIR_ADDRESS = "AyCkqVaYArj6uGvVhEqKUw6vY2BrZhS1F13ArLTVaCKn"
-
-# ✅ Dohvata cenu i 24h obim trgovine sa Dexscreener-a
+# ✅ Dohvata cenu i volume koristeći /search endpoint
 async def get_token_price_and_volume():
     try:
         async with httpx.AsyncClient(timeout=10.0) as client:
-            url = f"https://api.dexscreener.com/latest/dex/pairs/solana/{DEX_PAIR_ADDRESS}"
+            url = f"https://api.dexscreener.com/latest/dex/search?q={DIS_MINT}"
             r = await client.get(url)
-            data = r.json()
 
-            if "pair" in data:
-                price = float(data["pair"]["priceUsd"])
-                volume = float(data["pair"]["volume"]["h24"])
-                buy_volume = float(data["pair"]["buyVolume"]["h24"])
-                sell_volume = float(data["pair"]["sellVolume"]["h24"])
+            if r.status_code != 200:
+                print(f"[WARN] Dexscreener returned {r.status_code}")
+                return 0.0, 0.0, 0.0, 0.0
+
+            data = r.json()
+            if "pairs" in data and data["pairs"]:
+                pair = data["pairs"][0]
+                price = float(pair["priceUsd"])
+                volume = float(pair["volume"]["h24"])
+                buy_volume = float(pair["buyVolume"]["h24"])
+                sell_volume = float(pair["sellVolume"]["h24"])
                 return price, volume, buy_volume, sell_volume
             else:
-                print("[WARN] Pair nije pronađen")
+                print("[WARN] No pair found in Dexscreener search")
                 return 0.0, 0.0, 0.0, 0.0
     except Exception as e:
         print(f"[ERROR get_token_price_and_volume] {e}")
