@@ -1,41 +1,29 @@
-import httpx
 import os
+import requests
+from telegram import Bot
 
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 CHAT_ID = os.getenv("CHAT_ID")
+BIRDEYE_API_KEY = os.getenv("BIRDEYE_API_KEY")
 DIS_MINT = os.getenv("DIS_MINT")
 
-# ✅ Dohvata cenu tokena preko Jupiter API-ja
 async def get_token_price():
     try:
-        async with httpx.AsyncClient(timeout=10.0) as client:
-            url = f"https://price.jup.ag/v4/price?ids={DIS_MINT}"
-            r = await client.get(url)
-            if r.status_code != 200:
-                print(f"[WARN] Jupiter API error {r.status_code}")
-                return 0.0
-
-            data = r.json()
-            if DIS_MINT in data:
-                price = float(data[DIS_MINT]["price"])
-                return price
-            else:
-                print(f"[WARN] Jupiter ne vraća podatke za {DIS_MINT}")
-                return 0.0
+        url = f"https://public-api.birdeye.so/public/price?address={DIS_MINT}"
+        headers = {
+            "accept": "application/json",
+            "X-API-KEY": BIRDEYE_API_KEY
+        }
+        response = requests.get(url, headers=headers)
+        data = response.json()
+        return data["data"]["value"]
     except Exception as e:
-        print(f"[ERROR get_token_price] {e}")
+        print("[ERROR get_token_price]", e)
         return 0.0
 
-# 📤 Šalje poruku na Telegram
-async def send_telegram_message(text: str) -> None:
+async def send_telegram_message(message):
     try:
-        url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
-        payload = {
-            "chat_id": CHAT_ID,
-            "text": text,
-            "parse_mode": "Markdown"
-        }
-        async with httpx.AsyncClient(timeout=10.0) as client:
-            await client.post(url, json=payload)
+        bot = Bot(token=BOT_TOKEN)
+        await bot.send_message(chat_id=CHAT_ID, text=message)
     except Exception as e:
-        print(f"[ERROR send_telegram_message] {e}")
+        print("[ERROR send_telegram_message]", e)
