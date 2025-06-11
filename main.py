@@ -1,35 +1,41 @@
-import asyncio
-from holders_activity import get_holder_balances_and_activity
-from utils import get_token_price_and_volume, send_telegram_message
+import httpx
+import os
 
-async def main():
-    # Cena i volumen
-    price, volume, _, _ = await get_token_price_and_volume()
+BOT_TOKEN = os.getenv("BOT_TOKEN")
+CHAT_ID = os.getenv("CHAT_ID")
+DIS_MINT = os.getenv("DIS_MINT")
 
-    # Aktivnosti i promene balansa
-    changes, most_active = await get_holder_balances_and_activity()
+# ✅ Dohvata cenu tokena preko Jupiter API-ja
+async def get_token_price():
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            url = f"https://price.jup.ag/v4/price?ids={DIS_MINT}"
+            r = await client.get(url)
+            if r.status_code != 200:
+                print(f"[WARN] Jupiter API error {r.status_code}")
+                return 0.0
 
-    # Format poruke
-    msg = "📉 DIS Izveštaj (24h)\n"
-    msg += f"💵 Cena: ${price:.6f}\n"
-    msg += f"📊 Volume (24h): ${volume:,.0f}\n\n"
+            data = r.json()
+            if DIS_MINT in data:
+                price = float(data[DIS_MINT]["price"])
+                return price
+            else:
+                print(f"[WARN] Jupiter ne vraća podatke za {DIS_MINT}")
+                return 0.0
+    except Exception as e:
+        print(f"[ERROR get_token_price] {e}")
+        return 0.0
 
-    # Najaktivniji holder
-    if most_active:
-        msg += f"👤 Najaktivniji holder:\n{most_active['address']}\n\n"
-    else:
-        msg += "👤 Najaktivniji holder: Nema aktivnosti u poslednjih 24h\n\n"
-
-    # Promene balansa
-    if not changes:
-        msg += "📦 Nema značajnih promena balansa među holderima.\n"
-    else:
-        msg += "📦 Promene balansa:\n"
-        for c in changes:
-            msg += f"🔄 {c['address'][:4]}...{c['address'][-4:]} promena: {round(c['change'] / 1_000_000, 1)}M DIS "
-            msg += f"(trenutno: {round(c['dis_balance'] / 1_000_000, 1)}M)\n"
-
-    await send_telegram_message(msg)
-
-if __name__ == "__main__":
-    asyncio.run(main())
+# 📤 Šalje poruku na Telegram
+async def send_telegram_message(text: str) -> None:
+    try:
+        url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
+        payload = {
+            "chat_id": CHAT_ID,
+            "text": text,
+            "parse_mode": "Markdown"
+        }
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            await client.post(url, json=payload)
+    except Exception as e:
+        print(f"[ERROR send_telegram_message] {e}")
