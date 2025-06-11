@@ -2,28 +2,35 @@ import os
 import requests
 from telegram import Bot
 
-BOT_TOKEN = os.getenv("BOT_TOKEN")
-CHAT_ID = os.getenv("CHAT_ID")
-BIRDEYE_API_KEY = os.getenv("BIRDEYE_API_KEY")
-DIS_MINT = os.getenv("DIS_MINT")
-
+# ✅ Dobavljanje cene DIS tokena preko BirdEye API-ja
 async def get_token_price():
     try:
-        url = f"https://public-api.birdeye.so/public/price?address={DIS_MINT}"
+        api_key = os.getenv("BIRDEYE_API_KEY")
+        dis_mint = os.getenv("DIS_MINT")
+
+        url = f"https://public-api.birdeye.so/public/price?address={dis_mint}"
         headers = {
             "accept": "application/json",
-            "X-API-KEY": BIRDEYE_API_KEY
+            "X-API-KEY": api_key
         }
-        response = requests.get(url, headers=headers)
-        data = response.json()
-        return data["data"]["value"]
+
+        res = requests.get(url, headers=headers)
+        data = res.json()
+
+        price = data.get("data", {}).get("value", 0.0)
+        return price
+
     except Exception as e:
         print("[ERROR get_token_price]", e)
         return 0.0
 
+# ✅ Slanje poruke na Telegram
 async def send_telegram_message(message):
     try:
-        bot = Bot(token=BOT_TOKEN)
-        await bot.send_message(chat_id=CHAT_ID, text=message)
+        bot_token = os.getenv("BOT_TOKEN")
+        chat_id = os.getenv("CHAT_ID")
+
+        bot = Bot(token=bot_token)
+        await bot.send_message(chat_id=chat_id, text=message)
     except Exception as e:
         print("[ERROR send_telegram_message]", e)
