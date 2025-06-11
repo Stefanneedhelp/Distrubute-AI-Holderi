@@ -4,11 +4,11 @@ from utils import get_token_price, send_telegram_message
 from track_meteora import get_recent_swaps
 
 async def main():
-    # Cena tokena (Birdeye)
+    # Cena tokena
     price = await get_token_price()
 
-    # Aktivnosti holdera
-    changes, most_active = await get_holder_balances_and_activity()
+    # Promene balansa holdera (bez transakcija)
+    changes, _ = await get_holder_balances_and_activity()
 
     # Meteora kupovine/prodaje
     dis_in, dis_out = await get_recent_swaps()
@@ -18,12 +18,6 @@ async def main():
     msg += f"💵 Cena: ${price:.6f}\n"
     msg += f"🟢 Kupovine (Meteora): {dis_out:,.1f} DIS = ${dis_out * price:,.0f}\n"
     msg += f"🔴 Prodaje (Meteora): {dis_in:,.1f} DIS = ${dis_in * price:,.0f}\n\n"
-
-    # Aktivni holder
-    if most_active:
-        msg += f"👤 Najaktivniji holder:\n{most_active['address']}\n\n"
-    else:
-        msg += "👤 Najaktivniji holder: Nema aktivnosti u poslednjih 24h\n\n"
 
     # Promene balansa
     if not changes:
